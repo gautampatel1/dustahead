@@ -1,0 +1,28 @@
+name: dustahead
+channels: [conda-forge]
+dependencies:
+  - python=3.11
+  - numpy
+  - pandas
+  - scipy
+  - pyyaml
+  - xarray
+  - netcdf4
+  - h5netcdf
+  - s3fs
+  - pyproj
+  - requests
+  - pyarrow
+  - rasterio
+  - matplotlib
+  - pytest
+  - streamlit
+  - eccodes
+  - cfgrib
+  - pip
+  - pip:
+      - herbie-data
+      - py3dep
+      # PyTorch for the RTX 5070 Ti (Blackwell) needs the CUDA 12.8 build:
+      - --index-url https://download.pytorch.org/whl/cu128
+      - torch

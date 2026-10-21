@@ -1,0 +1,91 @@
+# DustAhead default configuration. Every script reads this file.
+
+domain:                 # Arizona + New Mexico, ~4 km cells, 250 x 200
+  lon_min: -115.0
+  lon_max: -103.0
+  lat_min: 30.5
+  lat_max: 36.5
+  nx: 250
+  ny: 200
+
+time:
+  step_min: 10          # GOES CONUS scan cadence we sample at
+  history_frames: 6     # t0-50 ... t0 (6 frames x 10 min)
+  leads_min: [15, 30, 60]
+  samples_per_event: 72 # 12 h window around each event at 10 min
+
+satellite:              # GOES-West ABI Cloud and Moisture Imagery, CONUS
+  bucket: noaa-goes18   # GOES-18 is GOES-West since 2023-01-04
+  product: ABI-L2-MCMIPC
+  bands: [2, 7, 11, 13, 14, 15]   # 0.64, 3.9, 8.4, 10.3, 11.2, 12.3 um
+  dust_product: ABI-L2-ADPC       # Aerosol Detection Product (weak pixel labels)
+
+lightning:
+  bucket: noaa-goes18
+  product: GLM-L2-LCFA
+  window_min: 10
+
+hrrr:
+  fields: [u10, v10, gust, cape, rh2m, soilm, apcp]
+
+label:
+  vis_max_mi: 1.0
+  severe_vis_mi: 0.25
+  dust_codes: [DU, BLDU, DS, SS, HZ, VCBLDU, DRDU, SA, BLSA]
+  rain_codes: [RA, DZ, SN, SHRA, TSRA, GR, GS, PL]
+  warning_pad_min: 60    # station report counts if within ±60 min of a warning
+  station_radius_km: 12  # pixels within this radius of a labelled station share its label
+  genesis_radius_km: 50  # "genesis" case = no dust within 50 km at t0
+
+splits:
+  train: [2023, 2024]
+  val: [2025]
+  test: [2026]
+
+channels:
+  satellite: 36          # 6 frames x 6 bands
+  lightning: 6           # 6 frames of flash density
+  ir_change: 5           # 10.3 um frame differences
+  hrrr: 8                # u, v, gust, cape, dcape, rh, soil moisture, 7-day rain
+  static: 6              # elevation, slope, bare/fallow, land cover class, sand, clay
+  physics: 1             # erodibility prior
+  total: 62
+
+model:
+  name: gated_unet
+  base_channels: 32
+  depth: 4
+  gate_bias_init: 2.2    # sigmoid(2.2) ~ 0.90: gate starts open
+  gate_channels: [hrrr, static, physics]
+
+train:
+  lr: 0.001
+  weight_decay: 0.0001
+  batch_size: 8
+  epochs: 50
+  patience: 8
+  crop: [160, 192]       # (ny, nx) random crops; no flips (terrain is not symmetric)
+  amp: true
+  num_workers: 4
+  seed: 42
+
+loss:
+  focal_alpha: 0.25
+  focal_gamma: 2.0
+  fss_window: 5
+  w_focal: 1.0
+  w_fss: 1.0
+  w_station: 1.0
+
+eval:
+  threshold: 0.5
+  bootstrap: 1000
+  fss_windows: [3, 5, 9]
+
+paths:
+  data_root: data
+  raw: data/raw
+  samples: data/samples
+  labels: data/labels
+  static: data/static
+  runs: runs

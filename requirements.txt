@@ -1,0 +1,25 @@
+# Core (tests + training)
+numpy>=1.26
+pandas>=2.1
+scipy>=1.11
+pyyaml>=6
+torch>=2.3            # on the RTX 5070 Ti use: pip install torch --index-url https://download.pytorch.org/whl/cu128
+pytest>=7
+# Data pipeline (real data)
+xarray>=2024.1
+netCDF4>=1.6
+h5netcdf>=1.3
+s3fs>=2024.2
+pyproj>=3.6
+requests>=2.31
+herbie-data>=2024.3   # HRRR via AWS
+pyarrow>=14
+# Static layers
+rasterio>=1.3
+py3dep>=0.16
+# Product
+streamlit>=1.32
+matplotlib>=3.8
+# Optional
+# pysteps>=1.8        # optical-flow baseline
+# satpy>=0.47         # Dust RGB PNGs for slides (scripts/make_real_samples.py)

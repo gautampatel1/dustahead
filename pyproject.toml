@@ -1,0 +1,9 @@
+[project]
+name = "dustahead"
+version = "0.1.0"
+description = "Short-range dust-storm nowcasting for Interstate 10"
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

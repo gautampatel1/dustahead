@@ -1,0 +1,12 @@
+data/
+runs/
+*.npz
+*.nc
+*.grib2
+*.tif
+__pycache__/
+*.pyc
+.pytest_cache/
+.ipynb_checkpoints/
+*.egg-info/
+.env
