@@ -12,7 +12,9 @@ time:
   step_min: 10          # GOES CONUS scan cadence we sample at
   history_frames: 6     # t0-50 ... t0 (6 frames x 10 min)
   leads_min: [15, 30, 60]
-  samples_per_event: 72 # 12 h window around each event at 10 min
+  hours_before: 3       # sample window starts 3 h before the first warning (genesis cases)
+  hours_after: 2        # ... and ends 2 h after the last warning expires
+  samples_per_event: 72 # cap (12 h at 10 min)
 
 satellite:              # GOES-West ABI Cloud and Moisture Imagery, CONUS
   bucket: noaa-goes18   # GOES-18 is GOES-West since 2023-01-04
@@ -31,9 +33,10 @@ hrrr:
 label:
   vis_max_mi: 1.0
   severe_vis_mi: 0.25
-  dust_codes: [DU, BLDU, DS, SS, HZ, VCBLDU, DRDU, SA, BLSA]
-  rain_codes: [RA, DZ, SN, SHRA, TSRA, GR, GS, PL]
-  warning_pad_min: 60    # station report counts if within ±60 min of a warning
+  dust_codes: [DU, BLDU, DS, SS, HZ, VCBLDU, DRDU, SA, BLSA]   # a dust code is REQUIRED
+  rain_codes: [RA, DZ, SN, SHRA, TSRA, GR, GS, PL]              # recorded as rain_too, never excludes
+  warning_pad_min: 60    # report counts if within ±60 min of a DS warning or Storm Events entry
+  asos_report_types: [1, 2, 3]   # 5-minute, routine hourly, specials
   station_radius_km: 12  # pixels within this radius of a labelled station share its label
   genesis_radius_km: 50  # "genesis" case = no dust within 50 km at t0
 
@@ -84,7 +87,8 @@ eval:
 
 paths:
   data_root: data
-  raw: data/raw
+  raw: data/raw          # only Storm Events gz files land here; GOES/GLM/HRRR are read remotely
+  cache: data/cache      # regridded GOES frames, GLM densities, HRRR fields (small, reusable)
   samples: data/samples
   labels: data/labels
   static: data/static

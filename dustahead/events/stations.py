@@ -2,17 +2,20 @@
 
 Station label rule (per report, per station):
     visibility <= 1 mile
-    AND no precipitation code in the present-weather string
-    AND a dust/haze code present (DU, BLDU, DS, SS, HZ, ...)
-    AND the report time lies inside a Dust Storm Warning window (±pad), and inside its polygon
-        when one is available.
+    AND a dust code present in the present-weather string (DS, DU, BLDU, SS, SA, ... ; HZ counts only with a warning)
+    AND the report time lies inside a Dust Storm Warning window (±pad) and polygon when available,
+        OR inside an NCEI Storm Events "Dust Storm" entry for that county.
     visibility <= 1/4 mile is flagged 'severe'.
+    Rain codes (RA, TSRA, ...) are RECORDED (rain_too) but do not exclude: the 25 Aug 2025 Phoenix
+    haboob reads "-TSRA +DS" at 0.00 mi. Rain-only low visibility is excluded because it has no dust code.
 
-Why the warning cross-check: automated ASOS sensors measure visibility but cannot identify
-dust; the DU/HZ codes are added by human observers or by ASOS "present weather" logic that
-can confuse dust with haze or smoke. Requiring an NWS warning removes most of those errors.
+Why the warning cross-check: automated ASOS sensors measure visibility but cannot identify dust;
+the DS/DU codes come from human augmentation or present-weather logic that can confuse dust with
+haze or smoke. Requiring an NWS warning or Storm Events entry removes most of those errors.
 
-Data: IEM ASOS download service (https://mesonet.agron.iastate.edu/request/download.phtml).
+Data: IEM ASOS download service, https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py
+  report_type: 1 = 5-minute ASOS (HFMETAR), 2 = routine hourly, 3 = specials. We take all three
+  (verified Oct 2026: PHX 2025-08-26 00:35Z returns "-RA +DS" 0.00 mi from type 1 and "-TSRA +DS" from type 3).
 """
 from __future__ import annotations
 
@@ -28,6 +31,7 @@ from ..grid import Grid
 
 IEM = "https://mesonet.agron.iastate.edu"
 NETWORKS = ("AZ_ASOS", "NM_ASOS", "TX_ASOS", "CA_ASOS")  # TX for El Paso, CA for Blythe (both on I-10)
+ASOS_FIELDS = ("vsby", "wxcodes", "sknt", "gust", "drct", "tmpf", "relh", "p01i")
 
 # Stations along or near Interstate 10 (used when the network download is unavailable)
 I10_CORE = {
@@ -66,25 +70,26 @@ def fetch_station_table(grid: Grid, networks=NETWORKS) -> pd.DataFrame:
     return df
 
 
-def fetch_asos(stations: list[str], start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:
-    """Raw ASOS reports (routine + specials) for a list of stations and a UTC time range."""
-    params = [("data", v) for v in ("vsby", "wxcodes", "sknt", "gust", "drct", "tmpf", "relh", "p01i")]
-    params += [("station", s) for s in stations]
-    # report_type codes (IEM, since 2023): 1 = MADIS HFMETAR (5-min), 2 = routine hourly, 3 = specials.
-    # We want routine + specials. If the first real run returns no rows, check ?help on the endpoint.
-    params += [("tz", "Etc/UTC"), ("format", "onlycomma"), ("latlon", "no"), ("missing", "empty"),
-               ("trace", "0.0001"), ("report_type", "2"), ("report_type", "3"),
-               ("sts", start.strftime("%Y-%m-%dT%H:%MZ")), ("ets", end.strftime("%Y-%m-%dT%H:%MZ"))]
+def fetch_asos(stations: list[str], start: pd.Timestamp, end: pd.Timestamp, report_types=(1, 2, 3)) -> pd.DataFrame:
+    """ASOS reports (5-minute + routine + specials) for stations over a UTC range. One row per (station, time)."""
+    params = {"station": ",".join(stations), "data": ",".join(ASOS_FIELDS), "tz": "Etc/UTC", "format": "onlycomma",
+              "latlon": "no", "missing": "empty", "trace": "0.0001",
+              "report_type": ",".join(str(r) for r in report_types),
+              "sts": start.strftime("%Y-%m-%dT%H:%MZ"), "ets": end.strftime("%Y-%m-%dT%H:%MZ")}
     r = requests.get(f"{IEM}/cgi-bin/request/asos.py", params=params, timeout=300)
     r.raise_for_status()
     df = pd.read_csv(io.StringIO(r.text))
     if df.empty or "valid" not in df.columns:
         raise RuntimeError(f"IEM ASOS returned no data for {stations[:3]}... {start}-{end}: {r.text[:200]}")
     df["valid"] = pd.to_datetime(df["valid"], utc=True)
-    for c in ("vsby", "sknt", "gust", "drct", "tmpf", "relh", "p01i"):
-        df[c] = pd.to_numeric(df[c], errors="coerce")
+    for c in ASOS_FIELDS:
+        if c != "wxcodes":
+            df[c] = pd.to_numeric(df[c], errors="coerce")
     df["wxcodes"] = df["wxcodes"].fillna("").astype(str)
-    return df
+    # 5-minute and special reports can share a minute: keep the row with the richest weather string
+    df["_n"] = df.wxcodes.str.len()
+    df = df.sort_values(["station", "valid", "_n"]).drop_duplicates(["station", "valid"], keep="last").drop(columns="_n")
+    return df.reset_index(drop=True)
 
 
 _CODE_RE = re.compile(r"[A-Z]{2,6}")
@@ -92,21 +97,21 @@ _CODE_RE = re.compile(r"[A-Z]{2,6}")
 
 def has_code(wx: str, codes) -> bool:
     toks = set(_CODE_RE.findall(wx.upper()))
-    # split compound tokens like VCBLDU / TSRA into their 2-letter descriptors too
     expanded = set(toks)
-    for t in toks:
+    for t in toks:                      # split compound tokens: VCBLDU -> VC, BL, DU ; TSRA -> TS, RA
         for k in range(0, len(t) - 1, 2):
             expanded.add(t[k:k + 2])
     return any(c in expanded or c in toks for c in codes)
 
 
 def label_reports(obs: pd.DataFrame, warnings: pd.DataFrame, stations: pd.DataFrame, cfg: dict,
-                  polygons: dict | None = None) -> pd.DataFrame:
+                  polygons: dict | None = None, storm_events: pd.DataFrame | None = None) -> pd.DataFrame:
     """Apply the station label rule to every ASOS report.
 
-    polygons: optional {(wfo, year, eventid): rings} from warnings.fetch_polygon; if absent the
-    check is time-only (inside any DS.W window ±pad whose 'locations' mentions the station county).
-    Returns obs with columns: dust_code, rain_code, vis_ok, in_warning, label, severe.
+    polygons: optional {(wfo, year, eventid): rings} from warnings.fetch_polygon; without one the check falls
+    back to the warning's county list, then to time alone.
+    storm_events: optional NCEI Storm Events rows (see events/storm_events.py) as a second cross-check.
+    Adds: dust_code, rain_too, vis_ok, in_warning, in_storm_event, label, severe.
     """
     from .warnings import point_in_rings
 
@@ -114,39 +119,46 @@ def label_reports(obs: pd.DataFrame, warnings: pd.DataFrame, stations: pd.DataFr
     pad = pd.Timedelta(minutes=L["warning_pad_min"])
     obs = obs.copy()
     obs["dust_code"] = obs.wxcodes.map(lambda s: has_code(s, L["dust_codes"]))
-    obs["rain_code"] = obs.wxcodes.map(lambda s: has_code(s, L["rain_codes"]))
+    obs["haze_only"] = obs.wxcodes.map(lambda s: has_code(s, ["HZ"])) & ~obs.wxcodes.map(lambda s: has_code(s, [c for c in L["dust_codes"] if c != "HZ"]))
+    obs["rain_too"] = obs.wxcodes.map(lambda s: has_code(s, L["rain_codes"]))
     obs["vis_ok"] = obs.vsby <= L["vis_max_mi"]
     obs["severe_vis"] = obs.vsby <= L["severe_vis_mi"]
 
     ds = warnings[warnings.phenomena == "DS"] if not warnings.empty else warnings
     st = stations.set_index("sid")
     in_w = np.zeros(len(obs), bool)
+    in_se = np.zeros(len(obs), bool)
     for k, (sid, t) in enumerate(zip(obs.station, obs.valid)):
         if sid not in st.index:
             continue
         lon, lat, county = st.loc[sid, "lon"], st.loc[sid, "lat"], st.loc[sid, "county"]
-        cand = ds[(ds.issue - pad <= t) & (ds.expire + pad >= t)]
+        cand = ds[(ds.issue - pad <= t) & (ds.expire + pad >= t)] if len(ds) else ds
         for _, w in cand.iterrows():
             key = (w.wfo, w.year, w.eventid)
-            if polygons and key in polygons and polygons[key] is not None:
+            if polygons and polygons.get(key) is not None:
                 if point_in_rings(lon, lat, polygons[key]):
                     in_w[k] = True
                     break
-            else:  # fall back to county name match, else accept on time alone
-                if not county or (county and str(county).split()[0] in str(w.locations)):
-                    in_w[k] = True
-                    break
+            elif not county or str(county).split()[0] in str(w.locations):
+                in_w[k] = True
+                break
+        if storm_events is not None and len(storm_events) and county:
+            se = storm_events[(storm_events.begin - pad <= t) & (storm_events.end + pad >= t)]
+            in_se[k] = bool(se.cz_name.str.upper().str.contains(str(county).split()[0].upper()).any())
     obs["in_warning"] = in_w
-    obs["label"] = (obs.vis_ok & obs.dust_code & ~obs.rain_code & obs.in_warning).astype(int)
+    obs["in_storm_event"] = in_se
+    confirmed = obs.in_warning | obs.in_storm_event
+    obs["label"] = (obs.vis_ok & obs.dust_code & confirmed).astype(int)
     obs["severe"] = (obs.label.astype(bool) & obs.severe_vis).astype(int)
     return obs
 
 
-def station_targets(labels: pd.DataFrame, stations: pd.DataFrame, t0: pd.Timestamp, leads_min, tol_min: int = 10) -> pd.DataFrame:
+def station_targets(labels: pd.DataFrame, stations: pd.DataFrame, t0: pd.Timestamp, leads_min, tol_min: int = 5) -> pd.DataFrame:
     """For one forecast time t0, the label at each station at t0 + lead (nearest report within ±tol)."""
     rows = []
+    sids = set(stations.sid)
     for sid, grp in labels.groupby("station"):
-        if sid not in set(stations.sid):
+        if sid not in sids:
             continue
         row = dict(station=sid)
         for lead in leads_min:
@@ -154,9 +166,9 @@ def station_targets(labels: pd.DataFrame, stations: pd.DataFrame, t0: pd.Timesta
             near = grp.iloc[(grp.valid - tt).abs().argsort()[:1]]
             ok = (not near.empty) and abs((near.valid.iloc[0] - tt).total_seconds()) <= tol_min * 60
             row[f"y_{lead}"] = int(near.label.iloc[0]) if ok else -1   # -1 = no report (masked in loss)
-        # dust present at t0 (for genesis stratification)
         near0 = grp.iloc[(grp.valid - t0).abs().argsort()[:1]]
-        row["dust_now"] = int(near0.label.iloc[0]) if not near0.empty else -1
+        ok0 = (not near0.empty) and abs((near0.valid.iloc[0] - t0).total_seconds()) <= tol_min * 60
+        row["dust_now"] = int(near0.label.iloc[0]) if ok0 else -1
         rows.append(row)
     return pd.DataFrame(rows)
 

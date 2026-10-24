@@ -43,15 +43,16 @@ class DustAhead:
     # ---- inputs ----
     def build_live_input(self, t0: dt.datetime) -> np.ndarray:
         T, S, P = self.cfg["time"], self.cfg["satellite"], self.cfg["paths"]
+        hrrr.set_cache(P["cache"])
         sat, flashes = [], []
         for t in goes.frame_times(t0, T["history_frames"], T["step_min"]):
             f = goes.nearest_file(S["bucket"], S["product"], t)
             if f is None:
                 raise RuntimeError(f"no GOES file near {t}")
-            sat.append(goes.read_bands(goes.download(f, P["raw"] + "/goes"), self.grid, BANDS))
+            sat.append(goes.frame_cached(f, self.grid, Path(P["cache"]) / "goes", BANDS))
             flashes.append(glm.flash_density_at(t, self.grid, self.cfg))
         hr = hrrr.hrrr_stack(t0, self.grid)
-        hr["rain7d"] = hrrr.hrrr_7day_rain(t0, self.grid, 168, 6)
+        hr["rain7d"] = hrrr.hrrr_7day_rain(t0, self.grid, days=7)
         clay, bare = self.static[STATIC_NAMES.index("clay")], self.static[STATIC_NAMES.index("bare")]
         prior = physics.erodibility_prior(hr["wind10"], hr["soilm"] * 100, clay, bare)
         self.last_rgb = goes.dust_rgb(sat[-1])

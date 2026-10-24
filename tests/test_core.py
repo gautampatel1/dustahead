@@ -55,8 +55,16 @@ def test_label_rule_requires_warning_and_no_rain():
     w = pd.DataFrame(dict(phenomena=["DS"], wfo=["PSR"], year=[2025], eventid=[12],
                           issue=[t - pd.Timedelta(hours=1)], expire=[t + pd.Timedelta(minutes=30)], locations=["Maricopa, Pinal [AZ]"]))
     out = label_reports(obs, w, stations, CFG)
-    assert out.label.tolist() == [1, 0, 1, 0]         # rain kills row 2, visibility kills row 4
-    assert out.severe.tolist() == [1, 0, 1, 0]
+    assert out.label.tolist() == [1, 1, 1, 0]         # "-TSRA +DS" is still dust (Phoenix 2025-08-26); visibility kills row 4
+    assert out.rain_too.tolist() == [False, True, False, False]
+    assert out.severe.tolist() == [1, 1, 1, 0]
+    # rain-only low visibility is NOT dust (no dust code)
+    obs_rain = obs.iloc[:1].assign(wxcodes="+TSRA", vsby=0.5)
+    assert label_reports(obs_rain, w, stations, CFG).label.tolist() == [0]
+    # Storm Events entry can confirm instead of a warning
+    se = pd.DataFrame(dict(begin=[t - pd.Timedelta(hours=1)], end=[t + pd.Timedelta(hours=1)], cz_name=["MARICOPA"]))
+    far = w.assign(issue=t + pd.Timedelta(hours=5), expire=t + pd.Timedelta(hours=6))
+    assert label_reports(obs.iloc[:1], far, stations, CFG, storm_events=se).label.tolist() == [1]
     # no warning -> no label even with dust code
     out2 = label_reports(obs.iloc[:1], w.assign(issue=t + pd.Timedelta(hours=5), expire=t + pd.Timedelta(hours=6)), stations, CFG)
     assert out2.label.tolist() == [0]
@@ -80,6 +88,15 @@ def test_event_clustering_and_null_days():
     assert (ev.kind == "dust").sum() == 2            # three warnings 40 min apart = one event, + one 3 days later
     assert ev[ev.kind == "dust"].iloc[0].n_warnings == 3
     assert (ev.kind == "null").sum() == 1            # SV on the dust day is not a null day
+
+
+def test_sample_times_window():
+    from dustahead.data.sampler import sample_times
+    ev = pd.Series(dict(t_start=pd.Timestamp("2025-08-25T22:36Z"), t_end=pd.Timestamp("2025-08-26T01:45Z")))
+    ts = sample_times(ev, CFG)
+    assert ts[0] == pd.Timestamp("2025-08-25T19:30Z").to_pydatetime()     # 3 h before, floored to 10 min
+    assert ts[-1] <= pd.Timestamp("2025-08-26T03:50Z").to_pydatetime()    # 2 h after, ceiled
+    assert 40 <= len(ts) <= 72 and (ts[1] - ts[0]).total_seconds() == 600
 
 
 def test_synthetic_sample_shapes():

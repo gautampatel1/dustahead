@@ -18,8 +18,9 @@ Prototype deadline: **30 Nov 2026**. Target venue after that: workshop paper, th
 - `scripts/00…05` — the pipeline in order. `tests/` — unit + synthetic end-to-end.
 
 ## Hard rules (do not break)
-1. **Labels are never hand-drawn.** Station label = vis ≤ 1 mi AND no rain code AND dust/haze code AND inside a
-   DS.W warning window/polygon. ADP pixels are weak labels (weight 0.3). See `events/stations.py`.
+1. **Labels are never hand-drawn.** Station label = vis ≤ 1 mi AND a dust code (DS/DU/BLDU…) AND inside a DS.W
+   warning window/polygon or an NCEI Storm Events dust entry. Rain codes are recorded, never exclude (the Phoenix
+   2025 haboob reads `-TSRA +DS`). ADP pixels are weak labels (weight 0.3). See `events/stations.py`, `DATA_SOURCES.md`.
 2. **Splits by year:** train 2023–24, val 2025, **test 2026 is run once at the end** (`05_evaluate.py --split test`).
    Never tune on it. GOES-17 (2019–22) may be added to train only.
 3. **Only data available at forecast time** goes into a sample (HRRR analysis ≤ t0, GOES frames ≤ t0).
@@ -33,6 +34,7 @@ Prototype deadline: **30 Nov 2026**. Target venue after that: workshop paper, th
 ```
 conda env create -f environment.yml && conda activate dustahead      # or: pip install -r requirements.txt
 pytest -q                                                             # unit + synthetic end-to-end (~1 min CPU)
+python scripts/00_check_sources.py                                    # PREFLIGHT: every source, package, GPU, speed
 python scripts/00_make_synthetic.py --small && python scripts/04_train.py --epochs 2   # smoke run
 python scripts/01_build_event_list.py                                 # events.csv  (needs internet)
 python scripts/02_build_static.py                                     # static layers (once)
@@ -47,6 +49,9 @@ streamlit run dustahead/app/dashboard.py -- --ckpt runs/latest/best.pt --demo
 - `static.build_all` fetches 3DEP, SoilGrids, CDL; NLCD must be downloaded manually. Verify each endpoint on first run.
 - `app/predict.I10` waypoints are coarse; replace with OSM geometry + FHWA HPMS AADT in Phase 2.
 - GOES file timing: CONUS scans every 5 min; `nearest_file` tolerates 6 min. Flag any sample with a gap.
+- GOES/GLM are read remotely (fsspec + h5netcdf) and only regridded frames are cached; HRRR via Herbie needs
+  eccodes/cfgrib (on Windows install them from conda-forge).
+- Data-build order: 00_check_sources → 01 → 02 → 03 --limit 2 (inspect) → 03 full (--workers 4–6, overnight).
 - `make_real_samples.py` (Dust RGB PNGs for the slides) lives in `scripts/`; untested end to end.
 
 ## Style
