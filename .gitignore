@@ -10,3 +10,9 @@ __pycache__/
 .ipynb_checkpoints/
 *.egg-info/
 .env
+logs/
+cache/
+.venv-linux/
+.uv-cache/
+dustahead_pkg/
+_old_wrapper/

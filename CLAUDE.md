@@ -44,6 +44,13 @@ python scripts/05_evaluate.py --ckpt runs/latest/best.pt --split val
 streamlit run dustahead/app/dashboard.py -- --ckpt runs/latest/best.pt --demo
 ```
 
+## State on 2026-10-24 (Claude, from the linked PC)
+- Preflight passes for every data source. Satellite = GOES-East (16 -> 19 on 2025-04-07); see DATA_SOURCES.md.
+- `data/labels/events.csv`: 152 dust events + 268 null days (2023-26). `data/static/*.npy`: all six layers built.
+- First real samples in `data/samples/val/` (Phoenix 2025-08-25): labels 23 dust-positive reports, 8 severe.
+- Next: the full build runs natively on Windows (RUNBOOK_WINDOWS.md), ~11,000 samples, then training.
+- Claude's Linux shell on this PC is limited to 3-minute commands: use it for checks and fixes, never for the bulk build.
+
 ## Known gaps / TODO (Phase 1)
 - `hrrr.dcape_proxy` is a proxy (HRRR has no DCAPE). Say so in the paper.
 - `static.build_all` fetches 3DEP, SoilGrids, CDL; NLCD must be downloaded manually. Verify each endpoint on first run.

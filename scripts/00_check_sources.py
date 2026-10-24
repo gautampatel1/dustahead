@@ -47,7 +47,10 @@ def _pkgs():
         try:
             importlib.import_module(m)
         except Exception:  # noqa: BLE001
-            missing.append(m)
+            try:
+                importlib.import_module(m)      # herbie writes its config file on first import and can raise once
+            except Exception:  # noqa: BLE001
+                missing.append(m)
     if missing:
         raise RuntimeError("missing: " + ", ".join(missing))
     return "all present"
