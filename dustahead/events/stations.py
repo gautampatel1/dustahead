@@ -3,7 +3,8 @@
 Station label rule (per report, per station):
     visibility <= 1 mile
     AND a dust code present in the present-weather string (DS, DU, BLDU, SS, SA, ... ; HZ counts only with a warning)
-    AND the report time lies inside a Dust Storm Warning window (±pad) and polygon when available,
+    AND the report time lies inside a Dust Storm Warning window (±pad) whose polygon contains the station
+        or whose text names the station's county (in_warning_strict records the polygon-only version),
         OR inside an NCEI Storm Events "Dust Storm" entry for that county.
     visibility <= 1/4 mile is flagged 'severe'.
     Rain codes (RA, TSRA, ...) are RECORDED (rain_too) but do not exclude: the 25 Aug 2025 Phoenix
@@ -126,7 +127,8 @@ def label_reports(obs: pd.DataFrame, warnings: pd.DataFrame, stations: pd.DataFr
 
     ds = warnings[warnings.phenomena == "DS"] if not warnings.empty else warnings
     st = stations.set_index("sid")
-    in_w = np.zeros(len(obs), bool)
+    in_w = np.zeros(len(obs), bool)          # polygon hit (strict)
+    in_wc = np.zeros(len(obs), bool)         # county named in a concurrent warning (relaxed)
     in_se = np.zeros(len(obs), bool)
     for k, (sid, t) in enumerate(zip(obs.station, obs.valid)):
         if sid not in st.index:
@@ -135,17 +137,17 @@ def label_reports(obs: pd.DataFrame, warnings: pd.DataFrame, stations: pd.DataFr
         cand = ds[(ds.issue - pad <= t) & (ds.expire + pad >= t)] if len(ds) else ds
         for _, w in cand.iterrows():
             key = (w.wfo, w.year, w.eventid)
-            if polygons and polygons.get(key) is not None:
-                if point_in_rings(lon, lat, polygons[key]):
-                    in_w[k] = True
-                    break
-            elif not county or str(county).split()[0] in str(w.locations):
+            if polygons and polygons.get(key) is not None and point_in_rings(lon, lat, polygons[key]):
                 in_w[k] = True
+            if not county or str(county).split()[0] in str(w.locations):
+                in_wc[k] = True
+            if in_w[k]:
                 break
         if storm_events is not None and len(storm_events) and county:
             se = storm_events[(storm_events.begin - pad <= t) & (storm_events.end + pad >= t)]
             in_se[k] = bool(se.cz_name.str.upper().str.contains(str(county).split()[0].upper()).any())
-    obs["in_warning"] = in_w
+    obs["in_warning_strict"] = in_w
+    obs["in_warning"] = in_w | in_wc          # polygon hit, or the station's county is under a concurrent warning
     obs["in_storm_event"] = in_se
     confirmed = obs.in_warning | obs.in_storm_event
     obs["label"] = (obs.vis_ok & obs.dust_code & confirmed).astype(int)

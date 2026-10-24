@@ -7,7 +7,7 @@ dependencies:
   - scipy
   - pyyaml
   - xarray
-  - netcdf4
+  - h5py
   - h5netcdf
   - s3fs
   - pyproj

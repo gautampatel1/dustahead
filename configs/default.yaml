@@ -16,14 +16,14 @@ time:
   hours_after: 2        # ... and ends 2 h after the last warning expires
   samples_per_event: 72 # cap (12 h at 10 min)
 
-satellite:              # GOES-West ABI Cloud and Moisture Imagery, CONUS
-  bucket: noaa-goes18   # GOES-18 is GOES-West since 2023-01-04
+satellite:              # GOES-East ABI Cloud and Moisture Imagery, CONUS (covers all of AZ+NM; West cuts off east NM)
+  bucket: null          # null = pick by date: noaa-goes16 before 2025-04-07, noaa-goes19 after
   product: ABI-L2-MCMIPC
   bands: [2, 7, 11, 13, 14, 15]   # 0.64, 3.9, 8.4, 10.3, 11.2, 12.3 um
   dust_product: ABI-L2-ADPC       # Aerosol Detection Product (weak pixel labels)
 
 lightning:
-  bucket: noaa-goes18
+  bucket: null          # same satellite as the imagery
   product: GLM-L2-LCFA
   window_min: 10
 

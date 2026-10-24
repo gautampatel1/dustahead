@@ -54,7 +54,7 @@ class DustAhead:
         hr = hrrr.hrrr_stack(t0, self.grid)
         hr["rain7d"] = hrrr.hrrr_7day_rain(t0, self.grid, days=7)
         clay, bare = self.static[STATIC_NAMES.index("clay")], self.static[STATIC_NAMES.index("bare")]
-        prior = physics.erodibility_prior(hr["wind10"], hr["soilm"] * 100, clay, bare)
+        prior = physics.erodibility_prior(hr["wind10"], hr["soilm"] * 25.0, clay, bare)
         self.last_rgb = goes.dust_rgb(sat[-1])
         return assemble(sat, flashes, hr, self.static, prior)
 

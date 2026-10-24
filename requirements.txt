@@ -7,8 +7,8 @@ torch>=2.3            # on the RTX 5070 Ti use: pip install torch --index-url ht
 pytest>=7
 # Data pipeline (real data)
 xarray>=2024.1
-netCDF4>=1.6
 h5netcdf>=1.3
+h5py>=3.10
 s3fs>=2024.2
 pyproj>=3.6
 requests>=2.31

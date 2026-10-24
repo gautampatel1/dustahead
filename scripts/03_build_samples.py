@@ -29,6 +29,9 @@ ap.add_argument("--limit", type=int, default=None, help="max events (for a first
 ap.add_argument("--only", choices=["dust", "null"], default=None)
 ap.add_argument("--workers", type=int, default=4, help="parallel forecast times per event (I/O bound)")
 ap.add_argument("--no-adp", action="store_true")
+ap.add_argument("--event", default=None, help="build only this event_id")
+ap.add_argument("--max-samples", type=int, default=None, help="per event, for quick tests")
+ap.add_argument("--null-ratio", type=float, default=1.0, help="null days per dust event (per year), sampled with seed 0")
 a = ap.parse_args()
 
 cfg = load_config()
@@ -36,10 +39,20 @@ grid = Grid.from_config(cfg)
 L = Path(cfg["paths"]["labels"])
 events = pd.read_csv(L / "events.csv", parse_dates=["t_start", "t_end"])
 warnings = pd.read_csv(L / "warnings.csv", parse_dates=["issue", "expire"])
+if a.event:
+    events = events[events.event_id == a.event]
 if a.only:
     events = events[events.kind == a.only]
+# keep null days in proportion to dust events, per year (there are ~2x more null days than dust events)
+keep = []
+for yr, grp in events.groupby("year"):
+    n_dust = int((grp.kind == "dust").sum())
+    nulls = grp[grp.kind == "null"].sample(min(int(a.null_ratio * n_dust), int((grp.kind == "null").sum())), random_state=0) if n_dust else grp.iloc[0:0]
+    keep.append(pd.concat([grp[grp.kind == "dust"], nulls]))
+events = pd.concat(keep).sort_values("t_start") if keep else events
 if a.limit:
     events = events.head(a.limit)
+print(f"building {int((events.kind == 'dust').sum())} dust events + {int((events.kind == 'null').sum())} null days")
 
 stations = fetch_station_table(grid)
 stations.to_csv(L / "stations.csv", index=False)
@@ -82,7 +95,7 @@ for ev in events.itertuples():
         return "ok"
 
     with ThreadPoolExecutor(a.workers) as ex:
-        results = list(ex.map(one, sample_times(ev, cfg)))
+        results = list(ex.map(one, sample_times(ev, cfg)[: a.max_samples]))
     print(f"  {results.count('ok')} written, {results.count('skip')} existed, "
           f"{sum(r not in ('ok', 'skip') for r in results)} failed")
     for r in results:

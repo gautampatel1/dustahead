@@ -1,6 +1,8 @@
 """Preflight: prove every data source, package and the GPU work on THIS machine before any bulk download.
 
     python scripts/00_check_sources.py            # ~2 minutes, prints OK / FAIL per item with a fix hint
+    python scripts/00_check_sources.py GOES HRRR  # only checks whose name contains GOES or HRRR
+    python scripts/00_check_sources.py --gpu      # skip checks whose name contains "gpu"
 
 Run this first on the training PC. Every FAIL must be fixed (or consciously accepted) before 03_build_samples.
 """
@@ -17,16 +19,22 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 T_KNOWN = dt.datetime(2025, 8, 26, 2, 0, tzinfo=dt.timezone.utc)   # Phoenix haboob, 25 Aug 2025 19:00 MST
 RESULTS: list[tuple[str, str, str]] = []
+ONLY = [a for a in sys.argv[1:] if not a.startswith("-")]          # substrings of check names to run
+SKIP = [a[2:] for a in sys.argv[1:] if a.startswith("--")]        # --gpu  skips checks containing "gpu"
 
 
 def check(name: str, hint: str = ""):
     def deco(fn):
+        low = name.lower()
+        if (ONLY and not any(o.lower() in low for o in ONLY)) or any(k.lower() in low for k in SKIP):
+            return fn
         t = time.time()
         try:
             msg = fn() or ""
             RESULTS.append((name, "OK", f"{msg} ({time.time() - t:.1f}s)"))
         except Exception as e:  # noqa: BLE001
-            RESULTS.append((name, "FAIL", f"{type(e).__name__}: {str(e)[:120]}  -> {hint}"))
+            RESULTS.append((name, "FAIL", f"{type(e).__name__}: {str(e)[:160]}  -> {hint}"))
+        print(f"  {RESULTS[-1][1]:4s} {name:36s} {RESULTS[-1][2]}", flush=True)
         return fn
     return deco
 
@@ -63,52 +71,55 @@ def _disk():
 
 
 # ---------------- NOAA on AWS ----------------
-@check("GOES-18 MCMIPC listing", "AWS S3 blocked? try from another network; bucket noaa-goes18 is public")
+@check("GOES-East MCMIPC listing", "AWS S3 blocked? try from another network; buckets noaa-goes16/19 are public")
 def _goes_list():
     from dustahead.data.goes import list_files, nearest_file
-    files = list_files("noaa-goes18", "ABI-L2-MCMIPC", T_KNOWN)
-    f = nearest_file("noaa-goes18", "ABI-L2-MCMIPC", T_KNOWN)
+    files = list_files(None, "ABI-L2-MCMIPC", T_KNOWN)
+    f = nearest_file(None, "ABI-L2-MCMIPC", T_KNOWN)
     if not files or f is None:
         raise RuntimeError("no files")
     return f"{len(files)} files in hour; nearest {Path(f).name[:45]}"
 
 
-@check("GOES-18 remote band read + regrid", "pip install h5netcdf s3fs; check pyproj")
+@check("GOES-East frame download + regrid", "pip install h5netcdf s3fs; check pyproj")
 def _goes_read():
     import numpy as np
     from dustahead import load_config
-    from dustahead.data.goes import nearest_file, open_remote, read_bands
+    from dustahead.data.goes import fetch_tmp, nearest_file, read_bands
     from dustahead.grid import Grid
     g = Grid.from_config(load_config())
-    f = nearest_file("noaa-goes18", "ABI-L2-MCMIPC", T_KNOWN)
+    f = nearest_file(None, "ABI-L2-MCMIPC", T_KNOWN)
     t = time.time()
-    ds = open_remote(f)
-    b = read_bands(ds, g, (13, 15))
-    ds.close()
+    tmp = fetch_tmp(f)
+    t_dl = time.time() - t
+    try:
+        b = read_bands(tmp, g)
+    finally:
+        tmp.unlink(missing_ok=True)
     bt13 = b[13]
     ok = np.isfinite(bt13).mean()
     if ok < 0.9:
         raise RuntimeError(f"only {ok:.0%} valid pixels after regrid")
-    return f"BT10.3 range {np.nanmin(bt13):.0f}-{np.nanmax(bt13):.0f} K, {ok:.0%} valid, 2 bands in {time.time() - t:.1f}s"
+    return f"BT10.3 {np.nanmin(bt13):.0f}-{np.nanmax(bt13):.0f} K, {ok:.0%} valid; download {t_dl:.1f}s + regrid {time.time() - t - t_dl:.1f}s"
 
 
-@check("GOES-18 ADPC (dust flag)", "product ABI-L2-ADPC missing for this hour?")
+@check("GOES-East ADPC (dust flag)", "product ABI-L2-ADPC missing for this hour?")
 def _adp():
     import numpy as np
     from dustahead import load_config
     from dustahead.data.goes import nearest_file, read_adp_dust
     from dustahead.grid import Grid
-    f = nearest_file("noaa-goes18", "ABI-L2-ADPC", T_KNOWN, max_minutes=11)
+    f = nearest_file(None, "ABI-L2-ADPC", T_KNOWN, max_minutes=11)
     d = read_adp_dust(f, Grid.from_config(load_config()))
     return f"dust pixels {int(np.nansum(d))}, retrieved {np.isfinite(d).mean():.0%}"
 
 
-@check("GLM lightning window", "bucket noaa-goes18 GLM-L2-LCFA")
+@check("GLM lightning window", "GLM-L2-LCFA on the GOES-East bucket")
 def _glm():
     from dustahead import load_config
     from dustahead.data.glm import files_in_window, flash_density
     from dustahead.grid import Grid
-    files = files_in_window("noaa-goes18", "GLM-L2-LCFA", T_KNOWN, 10)
+    files = files_in_window(None, "GLM-L2-LCFA", T_KNOWN, 10)
     if len(files) < 25:
         raise RuntimeError(f"only {len(files)} files in 10 min (expect ~30)")
     d = flash_density(files, Grid.from_config(load_config()))
@@ -171,6 +182,8 @@ def _se():
 # ---------------- static layers ----------------
 @check("USGS 3DEP elevation", "pip install py3dep; service elevation.nationalmap.gov")
 def _dem():
+    import os
+    os.environ.setdefault("HYRIVER_CACHE_DISABLE", "true")
     import py3dep
     dem = py3dep.get_dem((-112.2, 33.3, -112.0, 33.5), resolution=90)
     return f"Phoenix tile {dem.shape}, {float(dem.min()):.0f}-{float(dem.max()):.0f} m"
@@ -211,7 +224,7 @@ def _nlcd():
 @check("download speed (S3)", "a slow link means the full build takes days; run it overnight with --workers 6")
 def _speed():
     from dustahead.data.goes import _fs, nearest_file
-    f = nearest_file("noaa-goes18", "ABI-L2-MCMIPC", T_KNOWN)
+    f = nearest_file(None, "ABI-L2-MCMIPC", T_KNOWN)
     t = time.time()
     with _fs().open(f, "rb") as fh:
         n = len(fh.read(24 * 2**20))
@@ -220,9 +233,6 @@ def _speed():
 
 
 if __name__ == "__main__":
-    print(f"\nDustAhead preflight  ({dt.datetime.now():%Y-%m-%d %H:%M})\n")
-    for name, status, msg in RESULTS:
-        print(f"  {status:4s} {name:36s} {msg}")
     fails = [r for r in RESULTS if r[1] == "FAIL"]
     print(f"\n{len(RESULTS) - len(fails)} OK, {len(fails)} FAIL\n")
     sys.exit(1 if fails else 0)

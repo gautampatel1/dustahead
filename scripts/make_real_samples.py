@@ -31,7 +31,7 @@ fs = s3fs.S3FileSystem(anon=True)
 def goes_files(t):
     """Nearest GOES-18 CONUS L1b file per band for time t."""
     doy = t.timetuple().tm_yday
-    prefix = f"noaa-goes18/ABI-L1b-RadC/{t:%Y}/{doy:03d}/{t:%H}/"
+    prefix = f"noaa-goes19/ABI-L1b-RadC/{t:%Y}/{doy:03d}/{t:%H}/"
     files = fs.ls(prefix)
     picked = []
     for b in BANDS:
