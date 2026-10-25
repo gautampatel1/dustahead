@@ -43,7 +43,9 @@ label:
 splits:
   train: [2023, 2024]
   val: [2025]
-  test: [2026]
+  test: [2026]          # frozen: evaluated once at the end
+  val_from_2025: 0.5    # fraction of 2025 EVENTS (by hash) kept for validation; the rest join training.
+                        # 2023-24 alone hold only ~180 positive station labels; 2025 holds ~950.
 
 channels:
   satellite: 36          # 6 frames x 6 bands
@@ -70,15 +72,18 @@ train:
   crop: [160, 192]       # (ny, nx) random crops; no flips (terrain is not symmetric)
   amp: true
   num_workers: 4
+  val_max_samples: 1200   # validation subset per epoch: every sample with a positive + evenly spaced negatives
+  pos_oversample: 5       # WeightedRandomSampler weight for samples that contain any positive
   seed: 42
 
 loss:
-  focal_alpha: 0.25
+  focal_alpha: 0.75       # weight on the (rare) positive class; 0.25 let the model collapse to "never dust"
   focal_gamma: 2.0
   fss_window: 5
   w_focal: 1.0
   w_fss: 1.0
-  w_station: 1.0
+  w_station: 3.0          # stations are the only true ground truth
+  station_pos_weight: 10.0
 
 eval:
   threshold: 0.5

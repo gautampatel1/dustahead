@@ -32,6 +32,6 @@ def test_end_to_end(tmp_path):
     cfg["domain"].update(nx=80, ny=64)
     eng = DustAhead(run_dir / "best.pt", cfg, device="cpu")
     s = load_sample(sorted((tmp_path / "samples" / "test").glob("*.npz"))[0])
-    out = eng.predict_array(s["x"].astype(np.float32))
+    out = eng.predict_array(s["x"].astype(np.float32))   # 62-channel input: the station channel is appended as zeros
     assert out["probs"].shape == (3, 64, 80) and out["gate"].shape == (64, 80)
     assert isinstance(out["alerts"], list)

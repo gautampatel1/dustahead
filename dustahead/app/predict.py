@@ -60,7 +60,10 @@ class DustAhead:
 
     # ---- inference ----
     @torch.no_grad()
-    def predict_array(self, x: np.ndarray) -> dict:
+    def predict_array(self, x: np.ndarray, station_now: np.ndarray | None = None) -> dict:
+        from ..data.sampler import N_CH_IN
+        if x.shape[0] < N_CH_IN:   # live mode: station channel from the latest ASOS reports (TODO: fetch live); zeros = no report
+            x = np.concatenate([x, (station_now if station_now is not None else np.zeros((1,) + x.shape[1:], np.float32))], 0)
         xt = torch.from_numpy(x.astype(np.float32))[None].to(self.device)
         p, z, h = self.model(xt, return_parts=True)
         probs = p[0].cpu().numpy()

@@ -3,7 +3,7 @@ import pytest
 import torch
 
 from dustahead import load_config
-from dustahead.data.sampler import N_CH
+from dustahead.data.sampler import N_CH, N_CH_IN
 from dustahead.models import GatedUNet, build_model
 from dustahead.models.baselines import advected, hrrr_rule, persistence
 from dustahead.train.losses import DustLoss, focal_loss, fss, station_bce
@@ -14,20 +14,20 @@ CFG = load_config()
 @pytest.mark.parametrize("name", ["gated_unet", "unet_all", "unet_dust_only", "convlstm"])
 def test_models_forward(name):
     m = build_model(CFG, name)
-    x = torch.randn(2, N_CH, 48, 56)       # not a multiple of 16: tests padding
+    x = torch.randn(2, N_CH_IN, 48, 56)       # not a multiple of 16: tests padding
     p, z, h = m(x, return_parts=True)
     assert p.shape == (2, 3, 48, 56) and (p >= 0).all() and (p <= 1).all()
 
 
 def test_gate_starts_open_and_factorises():
     m = GatedUNet(gate_bias=2.2)
-    x = torch.randn(1, N_CH, 32, 32)
+    x = torch.randn(1, N_CH_IN, 32, 32)
     p, z, h = m(x, return_parts=True)
     g = torch.sigmoid(h)
     assert abs(g.mean().item() - 0.90) < 0.01            # sigmoid(2.2) = 0.900
     assert torch.allclose(p, torch.sigmoid(z) * g)
     # the gate sees only ground channels: perturbing satellite channels must not change h
-    x2 = x.clone(); x2[:, :47] += 5
+    x2 = x.clone(); x2[:, :47] += 5; x2[:, 62] += 5
     assert torch.allclose(m(x2, return_parts=True)[2], h)
 
 
@@ -50,7 +50,7 @@ def test_losses_and_grad():
 
 
 def test_baselines_shapes():
-    x = np.random.rand(N_CH, 20, 30).astype(np.float32)
+    x = np.random.rand(N_CH_IN, 20, 30).astype(np.float32)
     for f in (persistence, advected, hrrr_rule):
         out = f(x)
         assert out.shape == (3, 20, 30)

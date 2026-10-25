@@ -28,4 +28,4 @@ save_event_list(ev, out / "events.csv")
 print(f"{len(w)} warnings -> {len(ev)} events")
 for split, yrs in cfg["splits"].items():
     sub = ev[ev.year.isin(yrs)]
-    print(f"{split:5s} {yrs}: {int((sub.kind == 'dust').sum()):3d} dust events, {int((sub.kind == 'null').sum()):3d} null days")
+    print(f"{split:5s} {yrs}: {int((sub.kind == 'dust').sum()):3d} dust events, {int((sub.kind == 'nodust').sum()):3d} null days")

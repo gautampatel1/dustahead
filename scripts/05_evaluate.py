@@ -11,9 +11,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from dustahead import load_config
 from dustahead.eval.evaluate import run
 
-ap = argparse.ArgumentParser()
-ap.add_argument("--ckpt", required=True)
-ap.add_argument("--split", default="val")
-ap.add_argument("--baselines", nargs="*", default=["persistence", "advected", "hrrr_rule"])
-a = ap.parse_args()
-run(a.ckpt, load_config(), a.split, tuple(a.baselines))
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--ckpt", required=True)
+    ap.add_argument("--split", default="val")
+    ap.add_argument("--baselines", nargs="*", default=["station_persistence", "persistence", "advected", "hrrr_rule"])
+    a = ap.parse_args()
+    run(a.ckpt, load_config(), a.split, tuple(a.baselines))
+
+
+if __name__ == "__main__":
+    main()

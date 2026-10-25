@@ -34,8 +34,8 @@ def fss(p, y, w, n=5):
     return (1 - num / den.clamp_min(EPS)).mean()
 
 
-def station_bce(p, st_ij, st_y):
-    """p: (B, L, H, W); st_ij: (B, S, 2); st_y: (B, S, L) with -1 = no report (masked)."""
+def station_bce(p, st_ij, st_y, pos_weight: float = 1.0):
+    """p: (B, L, H, W); st_ij: (B, S, 2); st_y: (B, S, L) with -1 = no report (masked). pos_weight scales positives."""
     B, L, H, W = p.shape
     i = st_ij[..., 0].long().clamp(0, H - 1)
     j = st_ij[..., 1].long().clamp(0, W - 1)
@@ -44,7 +44,8 @@ def station_bce(p, st_ij, st_y):
     y = st_y.float()
     m = (y >= 0).float()
     ps = ps.clamp(EPS, 1 - EPS)
-    bce = -(y.clamp_min(0) * torch.log(ps) + (1 - y.clamp_min(0)) * torch.log(1 - ps))
+    yp = y.clamp_min(0)
+    bce = -(pos_weight * yp * torch.log(ps) + (1 - yp) * torch.log(1 - ps))
     return (bce * m).sum() / m.sum().clamp_min(1.0)
 
 
@@ -54,11 +55,12 @@ class DustLoss(torch.nn.Module):
         L = cfg["loss"]
         self.a, self.g, self.n = L["focal_alpha"], L["focal_gamma"], L["fss_window"]
         self.wf, self.ws, self.wst = L["w_focal"], L["w_fss"], L["w_station"]
+        self.pos_w = L.get("station_pos_weight", 1.0)
 
     def forward(self, p, batch):
         y, w = batch["y"], batch["w"]
         lf = focal_loss(p, y, w, self.a, self.g)
         ls = 1 - fss(p, y, w, self.n)
-        lst = station_bce(p, batch["st_ij"], batch["st_y"])
+        lst = station_bce(p, batch["st_ij"], batch["st_y"], self.pos_w)
         total = self.wf * lf + self.ws * ls + self.wst * lst
         return total, dict(focal=lf.item(), fss=ls.item(), station=lst.item())

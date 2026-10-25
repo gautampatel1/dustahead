@@ -86,6 +86,26 @@ def temperature_scale(p: np.ndarray, y: np.ndarray, grid=np.linspace(0.5, 3.0, 2
     return best
 
 
+def platt_scale(p: np.ndarray, y: np.ndarray, iters: int = 300, lr: float = 0.05) -> tuple[float, float]:
+    """Fit sigmoid(a * logit(p) + b) by gradient descent on the BCE (a = 1/T plus an intercept that fixes the
+    base-rate shift caused by oversampling). Returns (a, b)."""
+    m = y >= 0
+    z = np.log(np.clip(p[m], 1e-6, 1 - 1e-6) / (1 - np.clip(p[m], 1e-6, 1 - 1e-6)))
+    t = y[m].astype(float)
+    a, b = 1.0, 0.0
+    for _ in range(iters):
+        q = 1 / (1 + np.exp(-(a * z + b)))
+        ga, gb = np.mean((q - t) * z), np.mean(q - t)
+        a -= lr * ga * 10
+        b -= lr * gb * 10
+    return float(a), float(b)
+
+
+def apply_platt(p, a, b):
+    logit = np.log(np.clip(p, 1e-6, 1 - 1e-6) / (1 - np.clip(p, 1e-6, 1 - 1e-6)))
+    return 1 / (1 + np.exp(-(a * logit + b)))
+
+
 def apply_temperature(p, T):
     logit = np.log(np.clip(p, 1e-6, 1 - 1e-6) / (1 - np.clip(p, 1e-6, 1 - 1e-6)))
     return 1 / (1 + np.exp(-logit / T))

@@ -1,6 +1,6 @@
 """Step 3: labels + samples for every event in data/labels/events.csv.
 
-    python -u scripts/03_build_samples.py [--limit 2] [--only dust|null] [--workers 6] [--no-adp] [--event ID] [--max-samples N]
+    python -u scripts/03_build_samples.py [--limit 2] [--only dust|nodust] [--workers 6] [--no-adp] [--event ID] [--max-samples N]
 
 Per event: fetch 5-min ASOS reports, DS.W polygons and Storm Events, build station labels, then for
 each forecast time t0 (every 10 min from 3 h before the first warning to 2 h after the last expiry)
@@ -18,6 +18,8 @@ from pathlib import Path
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from dustahead.keep_awake import keep_awake  # noqa: E402
+keep_awake(True)   # long job: stop Windows from sleeping while this process runs
 
 _G = {}   # per-process globals (config, grid, static, stations)
 
@@ -118,7 +120,7 @@ def main():
 
     ap = argparse.ArgumentParser()
     ap.add_argument("--limit", type=int, default=None, help="max events (for a first test)")
-    ap.add_argument("--only", choices=["dust", "null"], default=None)
+    ap.add_argument("--only", choices=["dust", "nodust"], default=None)
     ap.add_argument("--workers", type=int, default=6, help="parallel worker processes")
     ap.add_argument("--no-adp", action="store_true")
     ap.add_argument("--event", default=None, help="build only this event_id")
@@ -139,12 +141,12 @@ def main():
     keep = []
     for yr, grp in events.groupby("year"):
         n_dust = int((grp.kind == "dust").sum())
-        nulls = grp[grp.kind == "null"].sample(min(int(a.null_ratio * n_dust), int((grp.kind == "null").sum())), random_state=0) if n_dust else grp.iloc[0:0]
+        nulls = grp[grp.kind == "nodust"].sample(min(int(a.null_ratio * n_dust), int((grp.kind == "nodust").sum())), random_state=0) if n_dust else grp.iloc[0:0]
         keep.append(pd.concat([grp[grp.kind == "dust"], nulls]))
     events = pd.concat(keep).sort_values("t_start") if keep else events
     if a.limit:
         events = events.head(a.limit)
-    print(f"building {int((events.kind == 'dust').sum())} dust events + {int((events.kind == 'null').sum())} null days "
+    print(f"building {int((events.kind == 'dust').sum())} dust events + {int((events.kind == 'nodust').sum())} null days "
           f"with {a.workers} worker processes", flush=True)
 
     if not (L / "stations.csv").exists():

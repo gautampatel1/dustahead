@@ -87,7 +87,7 @@ def test_event_clustering_and_null_days():
     ev = build_event_list(pd.DataFrame(rows))
     assert (ev.kind == "dust").sum() == 2            # three warnings 40 min apart = one event, + one 3 days later
     assert ev[ev.kind == "dust"].iloc[0].n_warnings == 3
-    assert (ev.kind == "null").sum() == 1            # SV on the dust day is not a null day
+    assert (ev.kind == "nodust").sum() == 1            # SV on the dust day is not a null day
 
 
 def test_sample_times_window():

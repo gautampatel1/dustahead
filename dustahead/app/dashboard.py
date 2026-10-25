@@ -43,7 +43,8 @@ if args.demo:
     files = sorted(Path(args.samples).glob("*.npz"))
     k = st.sidebar.slider("Replay sample", 0, max(len(files) - 1, 0), 0)
     s = load_sample(files[k])
-    out = E.predict_array(s["x"].astype(np.float32))
+    from dustahead.data.sampler import paint_station_now
+    out = E.predict_array(s["x"].astype(np.float32), paint_station_now(s["st_ij"], s["st_now"], s["x"].shape[1:])[None])
     out["t0"] = str(s["t0"])
     out["dust_rgb"] = s["dust_rgb"]
     truth = s["y"]

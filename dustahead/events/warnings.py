@@ -95,7 +95,7 @@ def build_event_list(warnings: pd.DataFrame, gap_hours: float = 3.0) -> pd.DataF
     """Cluster DS.W warnings into events and pick null days from SV.W.
 
     An EVENT is a run of dust warnings where consecutive issue times are < gap_hours apart.
-    Returns one row per event: t_start, t_end, n_warnings, states, kind ('dust' | 'null').
+    Returns one row per event: t_start, t_end, n_warnings, states, kind ('dust' | 'nodust')  -- not the word "null": pandas reads it back as NaN.
     """
     ds = warnings[warnings.phenomena == "DS"].sort_values("issue")
     events = []
@@ -127,7 +127,7 @@ def build_event_list(warnings: pd.DataFrame, gap_hours: float = 3.0) -> pd.DataF
         if not near:
             nulls.append(dict(t_start=grp.issue.min(), t_end=grp.expire.max(), n_warnings=len(grp),
                               states="+".join(sorted(grp.state.unique())), wfos="+".join(sorted(grp.wfo.unique())),
-                              kind="null"))
+                              kind="nodust"))
     out = pd.concat([ev, pd.DataFrame(nulls)], ignore_index=True)
     out["event_id"] = [f"{k}_{r.t_start:%Y%m%d_%H%M}" for k, r in zip(out.kind, out.itertuples())]
     out["year"] = out.t_start.dt.year

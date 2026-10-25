@@ -22,7 +22,7 @@ import torch.nn.functional as F
 
 from ..data.sampler import CH
 
-DYNAMIC = ("satellite", "lightning", "ir_change")
+DYNAMIC = ("satellite", "lightning", "ir_change", "station")
 GROUND = ("hrrr", "static", "physics")
 
 
@@ -110,7 +110,7 @@ class GatedUNet(nn.Module):
 class PlainUNet(nn.Module):
     """Ablation: everything into one U-Net, no gate (channels chosen by `groups`)."""
 
-    def __init__(self, n_leads=3, base=32, depth=4, groups=DYNAMIC + GROUND):
+    def __init__(self, n_leads=3, base=32, depth=4, groups=DYNAMIC + GROUND):   # "station" is in DYNAMIC
         super().__init__()
         self.register_buffer("idx", torch.tensor(channel_index(groups)))
         self.unet = UNet(len(self.idx), n_leads, base, depth)
@@ -141,7 +141,7 @@ class ConvLSTMNet(nn.Module):
     def __init__(self, n_leads=3, hid=32):
         super().__init__()
         self.cell = ConvLSTMCell(7, hid)            # 6 bands + 1 lightning per frame
-        self.register_buffer("gnd_idx", torch.tensor(channel_index(GROUND)))
+        self.register_buffer("gnd_idx", torch.tensor(channel_index(GROUND + ("station",))))
         self.head = nn.Sequential(nn.Conv2d(hid + len(self.gnd_idx), hid, 3, padding=1), nn.GELU(), nn.Conv2d(hid, n_leads, 1))
         self.hid = hid
 

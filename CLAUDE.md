@@ -48,7 +48,7 @@ streamlit run dustahead/app/dashboard.py -- --ckpt runs/latest/best.pt --demo
 - Preflight passes for every data source. Satellite = GOES-East (16 -> 19 on 2025-04-07); see DATA_SOURCES.md.
 - `data/labels/events.csv`: 152 dust events + 268 null days (2023-26). `data/static/*.npy`: all six layers built.
 - First real samples in `data/samples/val/` (Phoenix 2025-08-25): labels 23 dust-positive reports, 8 severe.
-- Next: the full build runs natively on Windows (RUNBOOK_WINDOWS.md), ~11,000 samples, then training.
+- Full build running natively on Windows since 2026-10-24 02:08 via bootstrap_windows.bat (5.7 s/sample, ~17 h). Then training (04_train.py) in the same .venv.
 - Claude's Linux shell on this PC is limited to 3-minute commands: use it for checks and fixes, never for the bulk build.
 
 ## Known gaps / TODO (Phase 1)
