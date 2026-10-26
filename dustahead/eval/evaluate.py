@@ -96,6 +96,9 @@ def run(ckpt: str | Path, cfg: dict, split: str = "test", baselines=("persistenc
         pv[name] = paired_bootstrap_pvalue(preds["model"][gen, l], preds[name][gen, l], y[gen, l], ev[gen], "csi", B, thr)
     report["model_vs_baselines_p_genesis30"] = pv
     report["holm_corrected"] = holm(pv) if pv else {}
+    # per-station predictions for offline analysis (hybrids, genesis threshold sweeps) without re-running inference
+    np.savez_compressed(Path(ckpt).parent / f"eval_{split}_preds.npz", y=y, genesis=gen, event=ev,
+                        **{f"p_{n}": v for n, v in preds.items()})
     out = Path(ckpt).parent / f"eval_{split}.json"
     out.write_text(json.dumps(report, indent=1, default=float))
     print(json.dumps({k: v for k, v in report.items() if k != "models"}, indent=1, default=float))
