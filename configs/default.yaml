@@ -41,7 +41,7 @@ label:
   genesis_radius_km: 50  # "genesis" case = no dust within 50 km at t0
 
 splits:
-  train: [2023, 2024]
+  train: [2018, 2019, 2020, 2021, 2022, 2023, 2024]   # 2018-22 from GOES-16 (East), same sector; no ADP before 2020
   val: [2025]
   test: [2026]          # frozen: evaluated once at the end
   val_from_2025: 0.5    # fraction of 2025 EVENTS (by hash) kept for validation; the rest join training.

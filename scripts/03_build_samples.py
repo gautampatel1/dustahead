@@ -152,7 +152,7 @@ def main():
     if not (L / "stations.csv").exists():
         fetch_station_table(grid).to_csv(L / "stations.csv", index=False)
     stations = pd.read_csv(L / "stations.csv")
-    split_of = {y: s for s, ys in cfg["splits"].items() for y in ys}
+    split_of = {y: s for s, ys in cfg["splits"].items() if isinstance(ys, (list, tuple)) for y in ys}   # skip val_from_2025
     storm_events = {}
     t_all = time.time()
     n_done = 0
