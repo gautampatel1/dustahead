@@ -74,6 +74,7 @@ def run(ckpt: str | Path, cfg: dict, split: str = "test", baselines=("persistenc
         a, b = platt_scale(preds["model"].ravel(), y.ravel())
         T, t_note = 1.0 / max(a, 1e-3), f"Platt a={a:.3f} b={b:.3f} fitted in-sample on {split} (2 parameters)"
         preds["model_raw"] = preds["model"]
+        fss_pix["model_raw"] = fss_pix["model"]      # same pixels: Platt is monotone, FSS is threshold-free here
         preds["model"] = apply_platt(preds["model"], a, b)
     else:
         preds["model"] = apply_temperature(preds["model"], T)
