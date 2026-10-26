@@ -35,3 +35,26 @@ skill where persistence has none, and with 83 positives at +30 the CIs include z
 (`unet_dust_only`) is far below everything else: ground state (HRRR, static, physics prior) carries most of the skill.
 The gate (`gated_unet`) does not beat the plain U-Net on this data; keep it as the interpretable variant, not the
 headline model.
+
+## Offline analysis from `eval_val_preds.npz` (unet_all v3 unless noted)
+
+Thresholds swept 0.05–0.95; "persist" = station persistence at 0.5.
+
+| subset | +15 model / persist | +30 model / persist | +60 model / persist |
+|---|---|---|---|
+| all stations          | 0.476 / 0.443 | 0.369 / 0.354 | 0.225 / 0.191 |
+| non-genesis (dust within 50 km at t0) | **0.660 / 0.553** | **0.550 / 0.475** | **0.421 / 0.295** |
+| genesis, threshold tuned on genesis   | 0.071 / 0 | 0.081 / 0 | **0.124 / 0** (42 hits, 210 FA, 88 misses @ 0.25) |
+
+- **Hybrid max(model, persistence) adds nothing** (0.441 / 0.352 / 0.209 — slightly below the model alone): with the
+  station channel the model already contains persistence, so the product can run one model, no ensemble rule.
+- **Where persistence has information the model beats it clearly** (+0.10–0.13 CSI on non-genesis stations). The
+  "all stations" numbers hide this because genesis rows contribute false alarms at every threshold.
+- **Genesis needs its own threshold**: best genesis threshold is 0.15–0.30, best overall is 0.65–0.75. The product should
+  use a lower alert threshold where no station reports dust yet (two-threshold policy) — this is a calibration choice,
+  not a new model.
+- **Per-event genesis hits at +60 are concentrated in the spring synoptic wind events** (2025-03-07: 18/26,
+  2025-04-17: 8/15, 2025-04-18: 15/23). The monsoon haboobs (2025-08-21, 08-25 Phoenix, 09-02) get **0 genesis hits**
+  (gated_unet: same pattern). Interpretation: HRRR wind + ground state predicts frontal/synoptic onset; convective
+  outflow onset (satellite + lightning cues, minutes of lead) is not yet learned. That is the open research question
+  for the paper and the argument for more convective training cases (2018–22 GOES-16) and a genesis-weighted loss.
