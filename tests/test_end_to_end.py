@@ -27,6 +27,9 @@ def test_end_to_end(tmp_path):
 
     rep = evaluate(run_dir / "best.pt", cfg, "test", ("persistence", "hrrr_rule"), device="cpu")
     assert "model" in rep["models"] and "genesis_30" in rep["models"]["model"]
+    # in-sample Platt branch (what 05_evaluate --split val runs): must report raw and calibrated model
+    rep2 = evaluate(run_dir / "best.pt", cfg, "val", ("persistence",), device="cpu", calibrate_on="val")
+    assert "model_raw" in rep2["models"] and rep2["models"]["model_raw"]["fss_pixels"] == rep2["models"]["model"]["fss_pixels"]
 
     # product interface on one stored sample
     cfg["domain"].update(nx=80, ny=64)
