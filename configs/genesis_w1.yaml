@@ -1,0 +1,3 @@
+# Experiment config: mild genesis weight (v6 runs). w=3 (v5) collapsed overall skill (FAR 0.98 on genesis).
+loss:
+  station_genesis_weight: 1.0

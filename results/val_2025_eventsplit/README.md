@@ -87,3 +87,18 @@ rate on persistence cases, where the plain U-Net is better. The two are compleme
 single product everywhere (+0.05 / +0.04 / +0.085 CSI over persistence at +15 / +30 / +60). Genesis hits are still only
 in the spring synoptic events; the monsoon haboobs remain unhit at +60. Next: v5 = genesis-weighted station loss
 (`configs/genesis_w3.yaml`, positives at genesis stations ×4) for both models.
+
+## v5 — genesis-weighted station loss (×4 on genesis positives): negative result
+
+| model | +15 | +30 | +60 | genesis +30 (POD / FAR) | genesis +60 (POD / FAR) |
+|---|---|---|---|---|---|
+| gated_unet v4 | 0.425 | 0.327 | 0.261 | 0.086 (0.28 / 0.89) | 0.134 (0.37 / 0.83) |
+| gated_unet v5 | 0.290 | 0.237 | 0.157 | 0.020 (0.59 / 0.98) | 0.024 (0.58 / 0.98) |
+| unet_all v4 | 0.483 | 0.375 | 0.250 | 0.052 (0.13 / 0.92) | 0.080 (0.18 / 0.87) |
+| unet_all v5 | 0.442 | 0.314 | 0.188 | 0.037 (0.46 / 0.96) | 0.061 (0.61 / 0.94) |
+
+The extra weight (effective positive weight 40 at genesis stations) tripled genesis POD but drove FAR to 0.98 and
+collapsed CSI everywhere; both runs early-stopped with the best epoch at 0. Genesis positives are too few (~130 in
+training) to be up-weighted this hard — the model learns "forecast dust wherever the ground is erodible". Keep v4.
+A mild weight (×2, `configs/genesis_w1.yaml`) is queued as v6 for completeness; the product baseline stays
+max(unet_all v4, gated_unet v4).
