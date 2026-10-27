@@ -11,6 +11,9 @@ Ensemble: `checkpoint` may be a list; the product probability is the element-wis
 (validated: max(unet_all v4, gated_unet v4) beats either member and station persistence at every lead).
 Alert policy: one threshold per lead (cfg.product.thresholds) and, optionally, a lower one for GENESIS
 road cells - cells with no station reporting dust within 50 km (cfg.product.genesis_thresholds).
+AlertTracker adds hysteresis across consecutive forecasts: an alert switches on at the threshold, stays on
+for at least `min_hold` forecasts and is released only when P drops below `release`, so a road segment is not
+warned and un-warned every 10 minutes when a station report is late.
 """
 from __future__ import annotations
 
@@ -168,3 +171,32 @@ class DustAhead:
                                        level="severe" if pm >= t + severe else "watch"))
                     break   # report the earliest lead that triggers
         return alerts
+
+
+class AlertTracker:
+    """Hysteresis over consecutive forecasts (10-min cadence). State per road segment."""
+
+    def __init__(self, cfg: dict):
+        P = cfg.get("product", {})
+        self.release = float(P.get("release_threshold", 0.5))
+        self.min_hold = int(P.get("min_hold_steps", 3))          # 3 x 10 min = 30 min minimum warning
+        self.state: dict[str, dict] = {}
+
+    def update(self, alerts: list[dict], probs: np.ndarray, engine: "DustAhead") -> list[dict]:
+        """`alerts` = fresh threshold alerts for this forecast; returns the alerts to SHOW now."""
+        fresh = {a["segment"]: a for a in alerts}
+        pmax = {name: float(probs[:, i, j].max()) for name, i, j in engine.road_cells()}
+        shown = []
+        for seg, p in pmax.items():
+            st = self.state.get(seg)
+            if seg in fresh:
+                a = dict(fresh[seg], held=False)
+                self.state[seg] = dict(alert=a, steps=(st["steps"] + 1 if st else 1))
+                shown.append(a)
+            elif st and (st["steps"] < self.min_hold or p >= self.release):
+                st["steps"] += 1
+                a = dict(st["alert"], p_max=p, held=True, level="watch")
+                shown.append(a)
+            elif st:
+                del self.state[seg]
+        return shown

@@ -14,7 +14,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from dustahead import load_config
-from dustahead.app.predict import DustAhead, I10
+from dustahead.app.predict import AlertTracker, DustAhead, I10
 from dustahead.data.sampler import load_sample, paint_station_now
 
 
@@ -42,16 +42,18 @@ def main():
     ext = [E.grid.lon_min, E.grid.lon_max, E.grid.lat_min, E.grid.lat_max]
     lon10, lat10 = zip(*I10)
     rows = []
+    tracker = AlertTracker(cfg)
     for k, f in enumerate(files):
         s = load_sample(f)
         ij, now = s["st_ij"], s["st_now"]
         r = E.predict_array(s["x"].astype(np.float32), paint_station_now(ij, now, s["x"].shape[1:])[None], ij, now)
         t0 = str(s["t0"])[:16]
+        r["alerts"] = tracker.update(r["alerts"], r["probs"], E)     # hysteresis across the 10-min sequence
         for al in r["alerts"]:
             rows.append(dict(t0=t0, **al))
         n_pos = [int((s["st_y"][:, l] == 1).sum()) for l in range(3)]
         print(f"{t0}  dust-now stations {int((now == 1).sum()):2d}  positives +15/+30/+60 {n_pos}  "
-              f"maxP {[round(float(r['probs'][l].max()), 2) for l in range(3)]}  alerts {len(r['alerts'])}")
+              f"maxP {[round(float(r['probs'][l].max()), 2) for l in range(3)]}  alerts {len(r['alerts'])} ({sum(a.get('held', False) for a in r['alerts'])} held)")
         if k % a.every:
             continue
         fig, axs = plt.subplots(2, 3, figsize=(15, 8))

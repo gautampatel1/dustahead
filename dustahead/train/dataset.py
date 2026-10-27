@@ -68,6 +68,9 @@ class DustDataset(Dataset):
             self.rows = self.rows.iloc[keep].reset_index(drop=True) if self.rows is not None else None
         self.crop = crop
         self.rng = np.random.default_rng(seed)
+        # station-dropout augmentation (training only): hide a fraction of the current station reports so the model
+        # cannot rely on the station channel alone and keeps using satellite/HRRR cues (robustness to missing reports)
+        self.station_dropout = float((cfg or {}).get("train", {}).get("station_dropout", 0.0)) if split == "train" else 0.0
 
     def sampler_weights(self, pos_weight: float = 8.0) -> torch.Tensor | None:
         """Per-sample weights for WeightedRandomSampler: samples with any positive count pos_weight x."""
@@ -84,7 +87,10 @@ class DustDataset(Dataset):
     def __getitem__(self, k):
         s = load_sample(self.files[k])
         x = s["x"].astype(np.float32)
-        x = np.concatenate([x, paint_station_now(s["st_ij"], s["st_now"], x.shape[1:])[None]], 0)   # channel 62
+        st_now = s["st_now"].copy()
+        if self.station_dropout > 0:
+            st_now[self.rng.random(len(st_now)) < self.station_dropout] = -1       # -1 = no report
+        x = np.concatenate([x, paint_station_now(s["st_ij"], st_now, x.shape[1:])[None]], 0)   # channel 62
         y = s["y"].astype(np.float32)
         w = s["w"].astype(np.float32)
         ij = s["st_ij"].astype(np.int64)

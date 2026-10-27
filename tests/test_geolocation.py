@@ -34,3 +34,23 @@ def test_domain_inside_sector_and_orientation():
     ramp = np.broadcast_to(np.arange(2500, dtype=np.float32), (1500, 2500))
     out = geo(ramp)
     assert np.all(np.diff(out[100, :]) >= 0)
+
+
+def test_scan_angles_closed_form_matches_pyproj():
+    """The closed-form GOES-R projection must reproduce pyproj's geos projection (if pyproj is importable)."""
+    from dustahead.data.goes import geos_scan_angles
+    h, a, b, lon0 = 35786023.0, 6378137.0, 6356752.31414, -75.0
+    lon, lat = np.meshgrid(np.linspace(-115, -103, 7), np.linspace(30.5, 36.5, 5))
+    x, y = geos_scan_angles(lon, lat, lon0, h, a, b)
+    assert np.isfinite(x).all() and (-0.1014 < x).all() and (x < 0.0387).all()   # inside the East CONUS x range
+    assert (0.044 < y).all() and (y < 0.129).all()
+    # Phoenix on GOES-East: a known point from the PUG worked example style check (sub-satellite point maps to 0,0)
+    x0, y0 = geos_scan_angles(lon0, 0.0, lon0, h, a, b)
+    assert abs(x0) < 1e-12 and abs(y0) < 1e-12
+    assert np.isnan(geos_scan_angles(lon0 + 179.0, 0.0, lon0, h, a, b)[0])   # far side of the Earth
+    try:
+        from pyproj import Proj
+    except Exception:  # noqa: BLE001
+        return
+    xm, ym = Proj(proj="geos", h=h, lon_0=lon0, sweep="x", a=a, b=b)(lon, lat)
+    assert np.allclose(x, xm / h, atol=1e-12) and np.allclose(y, ym / h, atol=1e-12)

@@ -18,7 +18,7 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from dustahead import load_config  # noqa: E402
-from dustahead.app.predict import DustAhead, I10  # noqa: E402
+from dustahead.app.predict import AlertTracker, DustAhead, I10  # noqa: E402
 from dustahead.data.sampler import load_sample  # noqa: E402
 
 ap = argparse.ArgumentParser()
@@ -60,12 +60,15 @@ if args.demo:
     truth = s["y"]
 else:
     if st.sidebar.button("Refresh now") or "live" not in st.session_state:
-        st.session_state["live"] = E.predict()
+        st.session_state.setdefault("tracker", AlertTracker(cfg))
+        live = E.predict()
+        live["alerts"] = st.session_state["tracker"].update(live["alerts"], live["probs"], E)
+        st.session_state["live"] = live
     out, truth = st.session_state["live"], None
 
 li = E.leads.index(lead)
 probs, gate = out["probs"], out["gate"]
-alerts = E.road_alerts(probs, thr, genesis_map=out.get("genesis"))
+alerts = out["alerts"] if not args.demo else E.road_alerts(probs, thr, genesis_map=out.get("genesis"))
 
 
 def road_overlay(ax):

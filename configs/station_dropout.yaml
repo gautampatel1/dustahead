@@ -1,0 +1,5 @@
+# Experiment config (v7): hide 30 % of the current station reports during training.
+# Motivation: the v4 ensemble's output flickers between ~0 and ~0.9 from one 10-min step to the next when a dusty
+# station has no report within +-5 min of t0 (Phoenix 2025-08-25). The model should fall back on satellite/HRRR.
+train:
+  station_dropout: 0.3

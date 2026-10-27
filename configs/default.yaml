@@ -74,6 +74,7 @@ train:
   num_workers: 4
   val_max_samples: 1200   # validation subset per epoch: every sample with a positive + evenly spaced negatives
   pos_oversample: 5       # WeightedRandomSampler weight for samples that contain any positive
+  station_dropout: 0.0    # training-only: fraction of current station reports hidden per sample (v7 uses 0.3)
   seed: 42
 
 loss:
@@ -96,6 +97,8 @@ product:                 # alert policy for the prototype (validated on the 2025
   thresholds: [0.80, 0.80, 0.80]          # per lead (+15, +30, +60): best-CSI thresholds of the max ensemble
   genesis_thresholds: [0.80, 0.80, 0.80]  # road cells with no dust-reporting station within 50 km (same for now)
   severe_margin: 0.10                     # "severe" when P exceeds the threshold by this much
+  release_threshold: 0.50                 # an active alert is released only when P falls below this ...
+  min_hold_steps: 3                       # ... and never before 3 forecasts (30 min) have passed
 
 paths:
   data_root: data

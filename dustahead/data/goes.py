@@ -21,7 +21,7 @@ band. So: download the whole file to a temp dir OUTSIDE the project (deleted rig
 cache the result as a 0.6 MB .npz per frame in data/cache/goes/. Raw files are never kept.
 
 Geolocation: the ABI fixed grid is a geostationary projection. We map our lat/lon grid to ABI
-scan angles once with pyproj and cache the pixel indices (the CONUS sector does not move).
+scan angles once (closed-form GOES-R geostationary projection, no pyproj) and cache the pixel indices (the CONUS sector does not move).
 """
 from __future__ import annotations
 
@@ -110,18 +110,40 @@ def open_remote(remote: str):
 
 
 # ---- geolocation ----------------------------------------------------------
+def geos_scan_angles(lon, lat, lon0: float, h: float, a: float, b: float, sweep: str = "x"):
+    """Geodetic lon/lat (deg) -> ABI fixed-grid scan angles (x, y) in radians. Closed form from the
+    GOES-R Product Definition and Users' Guide (PUG) vol. 3 sec. 4.2.8 - no pyproj needed. Points on the
+    far side of the Earth come back NaN."""
+    lon, lat = np.radians(np.asarray(lon, float)), np.radians(np.asarray(lat, float))
+    H = h + a                                    # satellite distance from the Earth's centre
+    e2 = (a * a - b * b) / (a * a)
+    phi_c = np.arctan((b * b) / (a * a) * np.tan(lat))                 # geocentric latitude
+    r_c = b / np.sqrt(1.0 - e2 * np.cos(phi_c) ** 2)                   # geocentric radius
+    dlon = lon - np.radians(lon0)
+    sx = H - r_c * np.cos(phi_c) * np.cos(dlon)
+    sy = -r_c * np.cos(phi_c) * np.sin(dlon)
+    sz = r_c * np.sin(phi_c)
+    visible = H * (H - sx) >= sy * sy + (a * a) / (b * b) * sz * sz
+    if sweep == "x":                                                   # GOES-R family
+        x = np.arcsin(-sy / np.sqrt(sx * sx + sy * sy + sz * sz))
+        y = np.arctan(sz / sx)
+    else:                                                              # Meteosat convention
+        x = np.arctan(-sy / sx)
+        y = np.arcsin(sz / np.sqrt(sx * sx + sy * sy + sz * sz))
+    x, y = np.where(visible, x, np.nan), np.where(visible, y, np.nan)
+    return x, y
+
+
 class AbiGeolocator:
     """Maps the DustAhead grid onto ABI fixed-grid pixel indices for one sector."""
 
     def __init__(self, ds, grid: Grid):
-        from pyproj import Proj
         p = ds["goes_imager_projection"].attrs
         h = float(p["perspective_point_height"])
-        proj = Proj(proj="geos", h=h, lon_0=float(p["longitude_of_projection_origin"]),
-                    sweep=p.get("sweep_angle_axis", "x"), a=float(p["semi_major_axis"]), b=float(p["semi_minor_axis"]))
         glon, glat = grid.mesh()
-        xm, ym = proj(glon, glat)                 # metres on the fixed-grid plane
-        x_rad, y_rad = xm / h, ym / h             # scan angles in radians (the file's x/y coordinates)
+        x_rad, y_rad = geos_scan_angles(glon, glat, float(p["longitude_of_projection_origin"]), h,
+                                        float(p["semi_major_axis"]), float(p["semi_minor_axis"]), p.get("sweep_angle_axis", "x"))
+        xm = x_rad                                # finite where the point is visible from the satellite
         x, y = ds["x"].values.astype(float), ds["y"].values.astype(float)
         dx, dy = x[1] - x[0], y[1] - y[0]
         self.j = np.rint((x_rad - x[0]) / dx).astype(int)
