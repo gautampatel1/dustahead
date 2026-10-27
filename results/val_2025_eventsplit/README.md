@@ -102,3 +102,17 @@ collapsed CSI everywhere; both runs early-stopped with the best epoch at 0. Gene
 training) to be up-weighted this hard — the model learns "forecast dust wherever the ground is erodible". Keep v4.
 A mild weight (×2, `configs/genesis_w1.yaml`) is queued as v6 for completeness; the product baseline stays
 max(unet_all v4, gated_unet v4).
+
+## v6 — mild genesis weight (×2): also negative, monotonic in the weight
+
+| model | +15 | +30 | +60 | genesis +60 best-thr (hits / FA / misses) |
+|---|---|---|---|---|
+| gated_unet v4 | 0.425 | 0.327 | 0.261 | 0.176 (34 / 58 / 96) |
+| gated_unet v6 | 0.408 | 0.293 | 0.233 | 0.130 (35 / 140 / 95) |
+| unet_all v4 | 0.483 | 0.375 | 0.250 | 0.093 (17 / 51 / 113) |
+| unet_all v6 | 0.462 | 0.387 | 0.205 | 0.103 (43 / 288 / 87) |
+
+Same mechanism at half strength: a few more genesis hits bought with 2–5× the false alarms. Loss re-weighting of
+genesis positives is closed as a direction (v5, v6); the lever is onset examples, not weights. **Model freeze for the
+30 Nov prototype: max(unet_all v4, gated_unet v4)** with a two-threshold policy (lower alert threshold where no
+station within 50 km reports dust).
