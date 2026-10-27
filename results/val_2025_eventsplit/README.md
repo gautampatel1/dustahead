@@ -58,3 +58,32 @@ Thresholds swept 0.05–0.95; "persist" = station persistence at 0.5.
   (gated_unet: same pattern). Interpretation: HRRR wind + ground state predicts frontal/synoptic onset; convective
   outflow onset (satellite + lightning cues, minutes of lead) is not yet learned. That is the open research question
   for the paper and the argument for more convective training cases (2018–22 GOES-16) and a genesis-weighted loss.
+
+## v4 — training years 2018–2024 (+ half of 2025 events); 13,730 train samples, 427 + ~470 station positives
+
+Same validation set. Station CSI at the best threshold (all stations) and genesis CSI at 0.5 with 95 % CI:
+
+| model | +15 | +30 | +60 | genesis +30 | genesis +60 | BSS +30 |
+|---|---|---|---|---|---|---|
+| station persistence | 0.443 | 0.354 | 0.191 | 0 | 0 | −0.01 |
+| unet_all v3 (2023–25) | 0.476 | 0.369 | 0.225 | 0.047 [0, 0.08] | 0.099 [0, 0.15] | +0.05 |
+| unet_all v4 | **0.481** | 0.368 | 0.244 | 0.051 [0, 0.09] | 0.083 [0, 0.15] | +0.01 |
+| gated_unet v3 | 0.417 | 0.360 | 0.225 | 0.060 [0, 0.08] | 0.075 [0, 0.14] | −0.09 |
+| gated_unet v4 | 0.407 | 0.333 | **0.271** | **0.102 [0, 0.15]** (POD 0.27) | **0.152 [0, 0.28]** (POD 0.37) | −0.08 |
+
+Offline (threshold swept on val, so optimistic by the same amount for every row):
+
+| | +15 all / genesis | +30 all / genesis | +60 all / genesis |
+|---|---|---|---|
+| unet_all v4 | 0.483 / 0.065 | 0.375 / 0.062 | 0.250 / 0.093 |
+| gated_unet v4 | 0.425 / 0.100 | 0.327 / 0.111 | 0.261 / **0.176** (34 hits, 58 FA, 96 misses) |
+| **max(unet_all v4, gated v4)** | **0.495 / 0.095** | **0.395 / 0.109** | **0.276 / 0.182** |
+| station persistence | 0.443 / 0 | 0.354 / 0 | 0.191 / 0 |
+
+Reading: 2018–22 added only ~250 station positives (many old DS warnings have no qualifying 5-minute report), so the
+genesis CIs still include zero. But the gated model changed character: at +60 it now has genesis CSI 0.15–0.18 with a
+quarter of the false alarms of v3 (58 vs 210) — the ground-state gate buys precision on onset cases at the cost of hit
+rate on persistence cases, where the plain U-Net is better. The two are complementary: max of the two is the best
+single product everywhere (+0.05 / +0.04 / +0.085 CSI over persistence at +15 / +30 / +60). Genesis hits are still only
+in the spring synoptic events; the monsoon haboobs remain unhit at +60. Next: v5 = genesis-weighted station loss
+(`configs/genesis_w3.yaml`, positives at genesis stations ×4) for both models.
