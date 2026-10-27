@@ -54,3 +54,20 @@ def test_baselines_shapes():
     for f in (persistence, advected, hrrr_rule):
         out = f(x)
         assert out.shape == (3, 20, 30)
+
+
+def test_genesis_weight_and_config_overlay():
+    from dustahead import load_config
+    from dustahead.data.sampler import genesis_per_station
+    # station 0 is dusty now -> station 1 (3 cells away) is not genesis, station 2 (far) is
+    gen = genesis_per_station(np.array([[10, 10], [12, 12], [60, 60]]), np.array([1, 0, -1]), radius_cells=12)
+    assert gen.tolist() == [False, False, True]
+    p = torch.full((1, 3, 70, 70), 0.3)
+    ij = torch.tensor([[[10, 10], [12, 12], [60, 60]]]); y = torch.tensor([[[1, 1, 1], [1, 1, 1], [1, 1, 1]]])
+    g = torch.tensor([[False, False, True]])
+    base = station_bce(p, ij, y, 10.0)
+    assert station_bce(p, ij, y, 10.0, g, 0.0).item() == pytest.approx(base.item())
+    assert station_bce(p, ij, y, 10.0, g, 3.0).item() > base.item()
+    cfg = load_config("configs/genesis_w3.yaml")
+    assert cfg["loss"]["station_genesis_weight"] == 3.0 and cfg["model"]["base_channels"] == 32   # overlay keeps defaults
+    assert DustLoss(cfg).gen_w == 3.0

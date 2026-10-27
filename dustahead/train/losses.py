@@ -34,8 +34,9 @@ def fss(p, y, w, n=5):
     return (1 - num / den.clamp_min(EPS)).mean()
 
 
-def station_bce(p, st_ij, st_y, pos_weight: float = 1.0):
-    """p: (B, L, H, W); st_ij: (B, S, 2); st_y: (B, S, L) with -1 = no report (masked). pos_weight scales positives."""
+def station_bce(p, st_ij, st_y, pos_weight: float = 1.0, st_gen=None, genesis_weight: float = 0.0):
+    """p: (B, L, H, W); st_ij: (B, S, 2); st_y: (B, S, L) with -1 = no report (masked). pos_weight scales positives;
+    positives at genesis stations (st_gen: (B, S) bool) are scaled by a further (1 + genesis_weight)."""
     B, L, H, W = p.shape
     i = st_ij[..., 0].long().clamp(0, H - 1)
     j = st_ij[..., 1].long().clamp(0, W - 1)
@@ -45,7 +46,10 @@ def station_bce(p, st_ij, st_y, pos_weight: float = 1.0):
     m = (y >= 0).float()
     ps = ps.clamp(EPS, 1 - EPS)
     yp = y.clamp_min(0)
-    bce = -(pos_weight * yp * torch.log(ps) + (1 - yp) * torch.log(1 - ps))
+    pw = torch.full_like(ps, float(pos_weight))
+    if st_gen is not None and genesis_weight:
+        pw = pw * (1.0 + genesis_weight * st_gen.float()[..., None])
+    bce = -(pw * yp * torch.log(ps) + (1 - yp) * torch.log(1 - ps))
     return (bce * m).sum() / m.sum().clamp_min(1.0)
 
 
@@ -56,11 +60,12 @@ class DustLoss(torch.nn.Module):
         self.a, self.g, self.n = L["focal_alpha"], L["focal_gamma"], L["fss_window"]
         self.wf, self.ws, self.wst = L["w_focal"], L["w_fss"], L["w_station"]
         self.pos_w = L.get("station_pos_weight", 1.0)
+        self.gen_w = L.get("station_genesis_weight", 0.0)
 
     def forward(self, p, batch):
         y, w = batch["y"], batch["w"]
         lf = focal_loss(p, y, w, self.a, self.g)
         ls = 1 - fss(p, y, w, self.n)
-        lst = station_bce(p, batch["st_ij"], batch["st_y"], self.pos_w)
+        lst = station_bce(p, batch["st_ij"], batch["st_y"], self.pos_w, batch.get("st_gen"), self.gen_w)
         total = self.wf * lf + self.ws * ls + self.wst * lst
         return total, dict(focal=lf.item(), fss=ls.item(), station=lst.item())

@@ -17,7 +17,7 @@ import pandas as pd
 import torch
 from torch.utils.data import Dataset
 
-from ..data.sampler import load_sample, paint_station_now
+from ..data.sampler import genesis_per_station, load_sample, paint_station_now
 
 MAX_STATIONS = 96
 
@@ -89,13 +89,16 @@ class DustDataset(Dataset):
         w = s["w"].astype(np.float32)
         ij = s["st_ij"].astype(np.int64)
         sy = s["st_y"].astype(np.int64)
+        gen = genesis_per_station(ij, s["st_now"])          # per-station genesis flag (no dust within 50 km at t0)
         H, W = x.shape[1:]
         if self.crop and (self.crop[0] < H or self.crop[1] < W):
             ch, cw = min(self.crop[0], H), min(self.crop[1], W)
             # crop around a positive station when there is one (keeps the rare signal inside the window)
             pos_idx = np.flatnonzero((sy == 1).any(1))
+            gen_idx = pos_idx[gen[pos_idx]]
             if len(pos_idx) and self.rng.random() < 0.8:
-                pi, pj = ij[self.rng.choice(pos_idx)]
+                # prefer a genesis positive (the rare onset signal) when the sample has one
+                pi, pj = ij[self.rng.choice(gen_idx if len(gen_idx) and self.rng.random() < 0.5 else pos_idx)]
                 i0 = int(np.clip(pi - self.rng.integers(0, ch), 0, H - ch))
                 j0 = int(np.clip(pj - self.rng.integers(0, cw), 0, W - cw))
             else:
@@ -109,8 +112,10 @@ class DustDataset(Dataset):
         S = ij.shape[0]
         ij_p = np.zeros((MAX_STATIONS, 2), np.int64)
         sy_p = np.full((MAX_STATIONS, sy.shape[1]), -1, np.int64)
+        gen_p = np.zeros(MAX_STATIONS, bool)
         ij_p[:S] = ij[:MAX_STATIONS]
         sy_p[:S] = sy[:MAX_STATIONS]
+        gen_p[:S] = gen[:MAX_STATIONS]
         return dict(x=torch.from_numpy(x), y=torch.from_numpy(y), w=torch.from_numpy(w),
-                    st_ij=torch.from_numpy(ij_p), st_y=torch.from_numpy(sy_p),
+                    st_ij=torch.from_numpy(ij_p), st_y=torch.from_numpy(sy_p), st_gen=torch.from_numpy(gen_p),
                     genesis=torch.tensor(bool(s["genesis"])), idx=k)

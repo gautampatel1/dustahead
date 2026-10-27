@@ -84,6 +84,7 @@ loss:
   w_fss: 1.0
   w_station: 3.0          # stations are the only true ground truth
   station_pos_weight: 10.0
+  station_genesis_weight: 0.0   # extra x(1+w) on positives at genesis stations (no dust within 50 km at t0); v5 runs use 3
 
 eval:
   threshold: 0.5

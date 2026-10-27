@@ -9,7 +9,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
-from ..data.sampler import load_sample, paint_station_now
+from ..data.sampler import genesis_per_station as _genesis_ij, load_sample, paint_station_now
 from ..models.baselines import BASELINES, SAMPLE_BASELINES
 from ..train.dataset import DustDataset
 from ..train.train import load_checkpoint
@@ -19,14 +19,7 @@ from .metrics import fss_np, station_scores, temperature_scale, apply_temperatur
 
 def genesis_per_station(s: dict, radius_cells: int = 12) -> np.ndarray:
     """Per station: True when no station within `radius_cells` (incl. itself) reports dust at t0."""
-    ij = s["st_ij"].astype(float)
-    now = s["st_now"].astype(int)
-    out = np.ones(len(ij), bool)
-    dusty = ij[now == 1]
-    for k, (i, j) in enumerate(ij):
-        if len(dusty) and (np.hypot(dusty[:, 0] - i, dusty[:, 1] - j) <= radius_cells).any():
-            out[k] = False
-    return out
+    return _genesis_ij(s["st_ij"], s["st_now"], radius_cells)
 
 
 def _station_values(p, st_ij, st_y):
