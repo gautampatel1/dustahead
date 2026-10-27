@@ -38,3 +38,8 @@ def test_end_to_end(tmp_path):
     out = eng.predict_array(s["x"].astype(np.float32))   # 62-channel input: the station channel is appended as zeros
     assert out["probs"].shape == (3, 64, 80) and out["gate"].shape == (64, 80)
     assert isinstance(out["alerts"], list)
+    # ensemble of two checkpoints = element-wise max; genesis map from the stored station reports
+    ens = DustAhead([run_dir / "best.pt", run_dir / "best.pt"], cfg, device="cpu")
+    out2 = ens.predict_array(s["x"].astype(np.float32), st_ij=s["st_ij"], st_now=s["st_now"])
+    assert np.allclose(out2["probs"], out["probs"]) and len(out2["members"]) == 1 and out2["genesis"].shape == (64, 80)
+    assert all({"segment", "lead_min", "p_max", "genesis", "level"} <= set(a) for a in out2["alerts"])

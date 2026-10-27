@@ -91,6 +91,12 @@ eval:
   bootstrap: 1000
   fss_windows: [3, 5, 9]
 
+product:                 # alert policy for the prototype (validated on the 2025 event split, see results/)
+  checkpoints: [runs/unet_all_v4/best.pt, runs/gated_unet_v4/best.pt]   # ensemble = element-wise max
+  thresholds: [0.80, 0.80, 0.80]          # per lead (+15, +30, +60): best-CSI thresholds of the max ensemble
+  genesis_thresholds: [0.80, 0.80, 0.80]  # road cells with no dust-reporting station within 50 km (same for now)
+  severe_margin: 0.10                     # "severe" when P exceeds the threshold by this much
+
 paths:
   data_root: data
   raw: data/raw          # only Storm Events gz files land here; GOES/GLM/HRRR are read remotely

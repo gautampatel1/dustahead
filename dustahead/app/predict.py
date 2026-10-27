@@ -1,11 +1,16 @@
 """The product interface: predict(t0) -> dust probability maps + road alerts.
 
 Live mode fetches the last hour of GOES/GLM/HRRR for t0 = now (rounded down to 10 min), builds
-the 62-channel stack exactly as in training (no station labels needed), runs the model and
-returns:
+the 62-channel stack exactly as in training, paints the station-observation channel from the
+latest ASOS (Automated Surface Observing System) reports, runs the model ENSEMBLE and returns:
   probs   (L, ny, nx) float32    P(dust) at +15/+30/+60 min
   gate    (ny, nx)               sigmoid(h): where the ground can emit (for the admin view)
   alerts  list of dicts          road segments whose max P over the next 60 min exceeds the threshold
+
+Ensemble: `checkpoint` may be a list; the product probability is the element-wise MAX of the members
+(validated: max(unet_all v4, gated_unet v4) beats either member and station persistence at every lead).
+Alert policy: one threshold per lead (cfg.product.thresholds) and, optionally, a lower one for GENESIS
+road cells - cells with no station reporting dust within 50 km (cfg.product.genesis_thresholds).
 """
 from __future__ import annotations
 
@@ -17,8 +22,9 @@ import torch
 
 from .. import load_config
 from ..data import goes, glm, hrrr, physics
-from ..data.sampler import BANDS, assemble
+from ..data.sampler import BANDS, assemble, genesis_per_station, paint_station_now
 from ..data.static import NAMES as STATIC_NAMES, load_static
+from ..events.stations import fetch_asos, fetch_station_table, has_code
 from ..grid import Grid
 from ..train.train import load_checkpoint
 
@@ -31,14 +37,18 @@ I10 = [(-114.72, 33.61), (-113.90, 33.63), (-113.20, 33.55), (-112.70, 33.43), (
 
 
 class DustAhead:
-    def __init__(self, checkpoint: str | Path, cfg: dict | None = None, device: str | None = None):
+    def __init__(self, checkpoint, cfg: dict | None = None, device: str | None = None):
         self.cfg = cfg or load_config()
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-        self.model, ck = load_checkpoint(checkpoint, self.device)
-        self.temperature = ck.get("temperature", 1.0)
+        paths = [checkpoint] if isinstance(checkpoint, (str, Path)) else list(checkpoint)
+        self.members = [load_checkpoint(p, self.device) for p in paths]      # [(model, ck), ...]
+        self.model = self.members[0][0]                                      # kept for single-model callers
+        self.temperature = self.members[0][1].get("temperature", 1.0)
         self.grid = Grid.from_config(self.cfg)
         self.static = load_static(self.cfg["paths"]["static"], self.grid)
         self.leads = self.cfg["time"]["leads_min"]
+        self.stations = None            # station table, loaded on first live call
+        self.last_station = None        # (st_ij, st_now) of the last live station fetch
 
     # ---- inputs ----
     def build_live_input(self, t0: dt.datetime) -> np.ndarray:
@@ -58,27 +68,75 @@ class DustAhead:
         self.last_rgb = goes.dust_rgb(sat[-1])
         return assemble(sat, flashes, hr, self.static, prior)
 
+    def station_now_live(self, t0: dt.datetime, window_min: int = 20) -> tuple[np.ndarray, np.ndarray]:
+        """What the ASOS stations say at t0: +1 dust (vis <= 1 mi and a dust code in a report within
+        `window_min` before t0), -1 clear report in the window, 0 no report. Live analogue of st_now."""
+        L = self.cfg["label"]
+        if self.stations is None:
+            f = Path(self.cfg["paths"]["labels"]) / "stations.csv"
+            import pandas as pd
+            self.stations = pd.read_csv(f) if f.exists() else fetch_station_table(self.grid)
+        st = self.stations
+        import pandas as pd
+        t0p = pd.Timestamp(t0).tz_localize("UTC") if pd.Timestamp(t0).tzinfo is None else pd.Timestamp(t0)
+        now = np.zeros(len(st), np.int8)
+        try:
+            obs = fetch_asos(list(st.sid), t0p - pd.Timedelta(minutes=window_min), t0p, tuple(L["asos_report_types"]))
+            obs = obs[obs.valid <= t0p].sort_values("valid").groupby("station").tail(3)
+            dust = obs[(obs.vsby <= L["vis_max_mi"]) & obs.wxcodes.apply(lambda w: has_code(w, L["dust_codes"]))]
+            reported = set(obs.station)
+            dusty = set(dust.station)
+            for k, sid in enumerate(st.sid):
+                now[k] = 1 if sid in dusty else (-1 if sid in reported else 0)
+        except Exception as e:  # noqa: BLE001  - no network: run with "no report" everywhere and say so
+            print(f"[DustAhead] live ASOS fetch failed ({type(e).__name__}): station channel = no report")
+        ij = np.stack([st.i.values, st.j.values], 1).astype(np.int64)
+        self.last_station = (ij, now)
+        return ij, now
+
     # ---- inference ----
     @torch.no_grad()
-    def predict_array(self, x: np.ndarray, station_now: np.ndarray | None = None) -> dict:
+    def predict_array(self, x: np.ndarray, station_now: np.ndarray | None = None, st_ij=None, st_now=None) -> dict:
         from ..data.sampler import N_CH_IN
-        if x.shape[0] < N_CH_IN:   # live mode: station channel from the latest ASOS reports (TODO: fetch live); zeros = no report
+        if x.shape[0] < N_CH_IN:   # live mode: append the painted station channel (zeros = no report anywhere)
             x = np.concatenate([x, (station_now if station_now is not None else np.zeros((1,) + x.shape[1:], np.float32))], 0)
         xt = torch.from_numpy(x.astype(np.float32))[None].to(self.device)
-        p, z, h = self.model(xt, return_parts=True)
-        probs = p[0].cpu().numpy()
-        if self.temperature != 1.0:
-            from ..eval.metrics import apply_temperature
-            probs = apply_temperature(probs, self.temperature)
-        gate = torch.sigmoid(h)[0, 0].cpu().numpy() if h is not None else np.ones(self.grid.shape, np.float32)
-        return dict(probs=probs, gate=gate, alerts=self.road_alerts(probs))
+        probs, gate, members = None, None, {}
+        for model, ck in self.members:
+            p, z, h = model(xt, return_parts=True)
+            pm = p[0].float().cpu().numpy()
+            T = ck.get("temperature", 1.0)
+            if T != 1.0:
+                from ..eval.metrics import apply_temperature
+                pm = apply_temperature(pm, T)
+            members[ck.get("name", "model")] = pm
+            probs = pm if probs is None else np.maximum(probs, pm)
+            if h is not None and gate is None:
+                gate = torch.sigmoid(h)[0, 0].float().cpu().numpy()
+        if gate is None:
+            gate = np.ones(probs.shape[1:], np.float32)
+        genesis_map = self.genesis_map(st_ij, st_now, probs.shape[1:])
+        return dict(probs=probs, gate=gate, members=members, genesis=genesis_map,
+                    alerts=self.road_alerts(probs, genesis_map=genesis_map))
+
+    def genesis_map(self, st_ij, st_now, shape, radius_cells: int = 12) -> np.ndarray:
+        """True where no station within ~50 km reports dust now (unknown stations -> genesis)."""
+        g = np.ones(shape, bool)
+        if st_ij is None or st_now is None:
+            return g
+        yy, xx = np.mgrid[0:shape[0], 0:shape[1]]
+        for (i, j), n in zip(st_ij, st_now):
+            if n == 1:
+                g &= np.hypot(yy - i, xx - j) > radius_cells
+        return g
 
     def predict(self, t0: dt.datetime | None = None) -> dict:
         t0 = t0 or dt.datetime.now(dt.timezone.utc)
         t0 = t0.replace(minute=t0.minute // 10 * 10, second=0, microsecond=0)
         x = self.build_live_input(t0)
-        out = self.predict_array(x)
-        out.update(t0=t0, dust_rgb=self.last_rgb)
+        ij, now = self.station_now_live(t0)
+        out = self.predict_array(x, paint_station_now(ij, now, x.shape[1:])[None], ij, now)
+        out.update(t0=t0, dust_rgb=self.last_rgb, station_ij=ij, station_now=now)
         return out
 
     # ---- road alerts ----
@@ -92,13 +150,21 @@ class DustAhead:
             segs.append((f"I-10 seg {k:02d} ({x0:.2f},{y0:.2f})->({x1:.2f},{y1:.2f})", i, j))
         return segs
 
-    def road_alerts(self, probs: np.ndarray, threshold: float | None = None) -> list[dict]:
-        thr = threshold or self.cfg["eval"]["threshold"]
+    def road_alerts(self, probs: np.ndarray, threshold: float | None = None, genesis_map: np.ndarray | None = None) -> list[dict]:
+        """One alert per road segment at the earliest lead whose max P exceeds that lead's threshold.
+        `threshold` (a single number) overrides the per-lead policy, e.g. from the dashboard slider."""
+        P = self.cfg.get("product", {})
+        thr = [threshold] * len(self.leads) if threshold else P.get("thresholds", [self.cfg["eval"]["threshold"]] * len(self.leads))
+        thr_g = [threshold] * len(self.leads) if threshold else P.get("genesis_thresholds", thr)
+        severe = P.get("severe_margin", 0.1)
         alerts = []
         for name, i, j in self.road_cells():
+            gen = bool(genesis_map[i, j].all()) if genesis_map is not None else False
             for l, lead in enumerate(self.leads):
+                t = thr_g[l] if gen else thr[l]
                 pm = float(probs[l][i, j].max())
-                if pm >= thr:
-                    alerts.append(dict(segment=name, lead_min=lead, p_max=pm, level="severe" if pm >= 0.8 else "watch"))
+                if pm >= t:
+                    alerts.append(dict(segment=name, lead_min=lead, p_max=pm, genesis=gen,
+                                       level="severe" if pm >= t + severe else "watch"))
                     break   # report the earliest lead that triggers
         return alerts
