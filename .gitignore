@@ -1,5 +1,5 @@
-data/
-runs/
+/data/
+/runs/
 *.npz
 *.nc
 *.grib2
@@ -10,8 +10,8 @@ __pycache__/
 .ipynb_checkpoints/
 *.egg-info/
 .env
-logs/
-cache/
+/logs/
+/cache/
 .venv-linux/
 .uv-cache/
 dustahead_pkg/
