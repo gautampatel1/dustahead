@@ -162,7 +162,9 @@ def build_model(cfg: dict, name: str | None = None) -> nn.Module:
     name = name or m["name"]
     n_leads = len(cfg["time"]["leads_min"])
     if name == "gated_unet":
-        return GatedUNet(n_leads, m["base_channels"], m["depth"], m["gate_bias_init"])
+        ground = tuple(m.get("gate_channels", GROUND))               # which channel groups the gate sees
+        dynamic = tuple(g for g in DYNAMIC + GROUND if g not in ground)   # everything else goes to the U-Net
+        return GatedUNet(n_leads, m["base_channels"], m["depth"], m["gate_bias_init"], dynamic=dynamic, ground=ground)
     if name == "unet_all":
         return PlainUNet(n_leads, m["base_channels"], m["depth"])
     if name == "unet_dust_only":

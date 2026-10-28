@@ -1,0 +1,7 @@
+# Experiment config (v8): the ground gate sees only the STATIC layers and the physics prior.
+# Why: scripts/08_inspect_gate.py showed gated_unet v4's gate fully closed (sigma(h) = 0.000 over the whole domain)
+# during both 2025 monsoon haboobs while the sky branch said sigma(z) = 1.0 - the gate had learned "rainy week (HRRR
+# rain7d) => no dust" from the storm-only null days. With HRRR moved to the U-Net branch the gate can only encode
+# erodibility ("can this surface emit?"), which is what the factorisation was meant to represent.
+model:
+  gate_channels: [static, physics]
