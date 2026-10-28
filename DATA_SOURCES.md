@@ -1,6 +1,6 @@
 # DustAhead data sources — verified inventory
 
-Every source below was checked against the live server on **23 Oct 2026** from Claude's workspace, except the two
+Every source below was checked against the live server on **23 Oct 2026** from the development workspace, except the two
 marked *PC-only* (they refuse automated readers from that network and are tested by `scripts/00_check_sources.py`).
 Nothing in Phase 1 needs an account.
 

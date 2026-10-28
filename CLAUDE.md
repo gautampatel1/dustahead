@@ -44,7 +44,7 @@ python scripts/05_evaluate.py --ckpt runs/latest/best.pt --split val
 streamlit run dustahead/app/dashboard.py -- --ckpt runs/latest/best.pt --demo
 ```
 
-## State on 2026-10-27 (Claude, from the linked PC)
+## State on 2026-10-27
 - Satellite = GOES-East (16 -> 19 on 2025-04-07). Events 2018-26: 273 dust + 268 nodust days. Samples: train 13,730 /
   val 5,514 / test 3,029 in `data/samples/` (index.csv). Split: train 2018-24 + half of 2025 events, val = other half, test 2026 frozen.
 - Inputs: 62 built channels + station-observation channel (sampler.paint_station_now). Geolocation is pyproj-free
@@ -56,7 +56,7 @@ streamlit run dustahead/app/dashboard.py -- --ckpt runs/latest/best.pt --demo
 - Product: `app/predict.py` ensemble + live ASOS channel + per-lead thresholds (config `product:`) + `AlertTracker`
   hysteresis; `scripts/07_demo_figures.py` makes slide panels + alerts.csv per event; dashboard replays by event.
 - PC: venv `C:\DustAhead\.venv`, RTX 5060 Ti, ~150 s/epoch. Job runner: drop a .bat into `jobs\q2\` (logs in `logs\jobs\`).
-  Claude's Linux shell on the PC: 3-minute commands, checks and fixes only.
+  The remote Linux shell on the PC: 3-minute commands, checks and fixes only.
 - Next: slides/doc update to real numbers, dashboard walkthrough, 2026 test once at the end (05_evaluate --split test).
 
 ## Known gaps / TODO (Phase 1)
