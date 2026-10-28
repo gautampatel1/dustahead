@@ -116,3 +116,37 @@ Same mechanism at half strength: a few more genesis hits bought with 2–5× the
 genesis positives is closed as a direction (v5, v6); the lever is onset examples, not weights. **Model freeze for the
 30 Nov prototype: max(unet_all v4, gated_unet v4)** with a two-threshold policy (lower alert threshold where no
 station within 50 km reports dust).
+
+## v7 — station-dropout augmentation (30 % of current reports hidden in training)
+
+| model | +15 | +30 | +60 | genesis +30 (POD / FAR) | genesis +60 (POD / FAR) |
+|---|---|---|---|---|---|
+| unet_all v4 | 0.483 | 0.375 | 0.250 | 0.052 (0.13 / 0.92) | 0.080 (0.18 / 0.87) |
+| unet_all v7 | 0.456 | 0.328 | 0.202 | 0.070 (0.41 / 0.92) | 0.102 (0.41 / 0.88) |
+| gated_unet v4 | 0.425 | 0.327 | 0.261 | 0.086 (0.28 / 0.89) | 0.134 (0.37 / 0.83) |
+| gated_unet v7 | 0.407 | 0.301 | 0.218 | 0.045 (0.25 / 0.95) | 0.064 (0.39 / 0.93) |
+| max(v7, v7) | 0.456 | 0.333 | 0.225 | genesis best-thr 0.067 / 0.064 / 0.116 | |
+| max(v4, v4) | **0.495** | **0.395** | **0.276** | genesis best-thr 0.095 / 0.109 / 0.182 | |
+
+Dropout did what it was meant to do on the Phoenix 2025-08-25 replay — the domain-max probability no longer flickers
+0.9 → 0.0 → 0.9 between 10-min steps (v7: a smooth 0.7–0.9 through the whole sequence) — but it is also ~0.8 three
+hours before and two hours after the storm: the model became smoother by becoming less discriminating, and CSI drops
+at every lead. **Product keeps v4 + alert hysteresis** (`AlertTracker`, hold ≥ 30 min, release < 0.5); v7 stays as a
+robustness ablation.
+
+## Why the gated model misses every monsoon haboob (`scripts/08_inspect_gate.py`, gated_unet v4)
+
+| event | gate σ(h): domain mean / p90 / max | sky branch σ(z) max | HRRR rain7d (norm.) |
+|---|---|---|---|
+| 2025-08-25 Phoenix haboob (all 9 times) | **0.000 / 0.000 / 0.000** | 1.00 | 0.077–0.089 |
+| 2025-08-21 haboob (all 7 times) | **0.000 / 0.000 / 0.000** | 0.96–1.00 | 0.097 |
+| 2025-03-07 synoptic | 0.003–0.142 / up to 0.92 / 1.000 | 1.00 | 0.028–0.078 |
+| 2025-04-18 synoptic | 0.003–0.237 / up to 0.99 / 1.000 | 1.00 | 0.007–0.019 |
+
+The sky branch says "dust" (σ(z) = 1 somewhere in the domain in every sample, so it carries little discrimination on
+its own); the gate does all the work, and in monsoon season it is shut over the entire domain. The ground inputs that
+differ between the two seasons are the HRRR 7-day rain and humidity, not the soil/terrain layers: the gate has learned
+"rainy week ⇒ no dust", a shortcut supplied by the storm-only null days (severe-thunderstorm days are monsoon days).
+This is the mechanism behind "zero genesis hits on monsoon cases" in every version so far.
+Fix under test as **v8 = gate on static + physics prior only** (`configs/gate_static.yaml`; HRRR moves to the U-Net
+branch), so the gate can only express erodibility, which is what P(dust) = P(outflow) × P(erodible) was meant to mean.

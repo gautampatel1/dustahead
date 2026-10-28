@@ -44,20 +44,19 @@ python scripts/05_evaluate.py --ckpt runs/latest/best.pt --split val
 streamlit run dustahead/app/dashboard.py -- --ckpt runs/latest/best.pt --demo
 ```
 
-## State on 2026-10-26 (Claude, from the linked PC)
-- Satellite = GOES-East (16 -> 19 on 2025-04-07); see DATA_SOURCES.md. Events: 152 dust + 268 nodust days (2023-26).
-- Samples built: train 3886 / val 5514 / test 2921 (12,321, ~35 GB) in `data/samples/`, index in `index.csv`.
-  Split used for all results so far: train 2023-24 + half of 2025 events (hash), val = other half of 2025, test 2026 frozen.
-- Inputs are 62 built channels + 1 **station-observation channel** painted at load time (sampler.paint_station_now).
-- Results: `results/val_2025_eventsplit/README.md`. v3 (with station channel) matches station persistence at +15/+30 and
-  beats it at +60 (CSI 0.225 vs 0.191); genesis CSI 0.05-0.10 with CIs touching 0 (only 47/83/130 genesis positives).
-  Best overall: `unet_all_v3`; the gate does not help on this data; satellite-only is far behind.
-- PC: Python 3.12 venv `C:\DustAhead\.venv`, RTX 5060 Ti 16 GB, ~150 s/epoch. Job runner: drop a .bat into `jobs\q2\`
-  (`dustahead/runner.py`, log in `logs\jobs\`). `keep_awake.py` keeps the PC on. Claude's Linux shell on this PC is
-  limited to 3-minute commands: checks and fixes only, never the bulk build or training.
-- Next: (1) more positives — extend training to 2018-22 with GOES-16 (same East sector; ~20 h build); (2) genesis-weighted
-  sampling/loss and thresholds tuned on the genesis subset; (3) hybrid = max(model, persistence) analysed offline from
-  `eval_val_preds.npz`; (4) dashboard demo on real samples; (5) proposal doc + slides updated to the real numbers.
+## State on 2026-10-27 (Claude, from the linked PC)
+- Satellite = GOES-East (16 -> 19 on 2025-04-07). Events 2018-26: 273 dust + 268 nodust days. Samples: train 13,730 /
+  val 5,514 / test 3,029 in `data/samples/` (index.csv). Split: train 2018-24 + half of 2025 events, val = other half, test 2026 frozen.
+- Inputs: 62 built channels + station-observation channel (sampler.paint_station_now). Geolocation is pyproj-free
+  (`goes.geos_scan_angles`) because Windows Application Control now blocks pyproj's DLL on the PC.
+- Results: `results/val_2025_eventsplit/README.md`. **Prototype model = max(unet_all v4, gated_unet v4)** (CSI
+  0.495/0.395/0.276 vs persistence 0.443/0.354/0.191; genesis 0.10/0.11/0.18). Closed directions: genesis loss weights
+  (v5, v6), station dropout (v7). Open: v8 gate on static+physics only (v4's gate is shut over the whole domain in monsoon season).
+- Product: `app/predict.py` ensemble + live ASOS channel + per-lead thresholds (config `product:`) + `AlertTracker`
+  hysteresis; `scripts/07_demo_figures.py` makes slide panels + alerts.csv per event; dashboard replays by event.
+- PC: venv `C:\DustAhead\.venv`, RTX 5060 Ti, ~150 s/epoch. Job runner: drop a .bat into `jobs\q2\` (logs in `logs\jobs\`).
+  Claude's Linux shell on the PC: 3-minute commands, checks and fixes only.
+- Next: v8 result -> slides/doc update to real numbers, dashboard walkthrough, then 2026 test once at the end.
 
 ## Known gaps / TODO (Phase 1)
 - `hrrr.dcape_proxy` is a proxy (HRRR has no DCAPE). Say so in the paper.
