@@ -81,35 +81,55 @@ def road_overlay(ax):
         ax.scatter(lons[now == -1], lats[now == -1], s=6, c="lightgrey", alpha=0.6, zorder=4)
 
 
-if view.startswith("Admin"):
+DARK = "#0e1117"
+
+
+def panel(draw, caption):
+    """One map panel: dark figure matching the Streamlit theme, no axes, road + stations overlaid."""
     import matplotlib.pyplot as plt
-    st.title(f"DustAhead admin · t0 = {out['t0']}")
-    c1, c2, c3 = st.columns(3)
+    st.caption(caption)
+    fig, ax = plt.subplots(figsize=(6, 3.6), facecolor=DARK)
+    draw(ax); road_overlay(ax); ax.set_axis_off()
+    fig.subplots_adjust(left=0.01, right=0.99, top=0.99, bottom=0.01)
+    st.pyplot(fig, clear_figure=True)
+
+
+if view.startswith("Admin"):
+    st.title(f"DustAhead admin · t0 = {str(out['t0'])[:16]} UTC")
     ext = [E.grid.lon_min, E.grid.lon_max, E.grid.lat_min, E.grid.lat_max]
+    c1, c2, c3 = st.columns(3)
     with c1:
-        st.caption("Dust RGB at t0 (pink = dust)")
-        fig, ax = plt.subplots(figsize=(5, 4)); ax.imshow(out["dust_rgb"], origin="lower", extent=ext); road_overlay(ax); ax.set_axis_off(); st.pyplot(fig)
+        panel(lambda ax: ax.imshow(out["dust_rgb"], origin="lower", extent=ext), "Dust RGB at t0 · pink = dust, orange = thick cloud · red dots = stations reporting dust")
     with c2:
-        st.caption(f"P(dust) at +{lead} min")
-        fig, ax = plt.subplots(figsize=(5, 4)); im = ax.imshow(probs[li], origin="lower", extent=ext, vmin=0, vmax=1, cmap="magma"); road_overlay(ax); ax.set_axis_off(); plt.colorbar(im, ax=ax, fraction=0.04); st.pyplot(fig)
+        panel(lambda ax: ax.imshow(probs[li], origin="lower", extent=ext, vmin=0, vmax=1, cmap="magma"), f"P(dust) at +{lead} min, max ensemble · black 0 → yellow 1")
     with c3:
-        st.caption("Ground gate σ(h): can the surface emit dust?")
-        fig, ax = plt.subplots(figsize=(5, 4)); ax.imshow(gate, origin="lower", extent=ext, vmin=0, vmax=1, cmap="YlOrBr"); road_overlay(ax); ax.set_axis_off(); st.pyplot(fig)
-    if truth is not None or len(out.get("members", {})) > 1:
-        cols = st.columns(3)
+        panel(lambda ax: ax.imshow(gate, origin="lower", extent=ext, vmin=0, vmax=1, cmap="YlOrBr"), "Ground gate σ(h): can the surface emit dust? · pale = closed, brown = open")
+    members = out.get("members", {})
+    if truth is not None or len(members) > 1:
+        cols = st.columns(1 + len(members) if truth is not None else len(members))
+        k = 0
         if truth is not None:
             with cols[0]:
-                st.caption(f"Painted target at +{lead} min (demo only; from station reports + ADP pixels)")
-                fig, ax = plt.subplots(figsize=(5, 4)); ax.imshow(truth[li], origin="lower", extent=ext, cmap="Greys"); road_overlay(ax); ax.set_axis_off(); st.pyplot(fig)
-        for c, (name, pm) in zip(cols[1:], out.get("members", {}).items()):
+                panel(lambda ax: ax.imshow(truth[li], origin="lower", extent=ext, cmap="Greys_r"), f"Target at +{lead} min (demo only: station discs + ADP pixels)")
+            k = 1
+        for c, (name, pm) in zip(cols[k:], members.items()):
             with c:
-                st.caption(f"Member {name} at +{lead} min")
-                fig, ax = plt.subplots(figsize=(5, 4)); ax.imshow(pm[li], origin="lower", extent=ext, vmin=0, vmax=1, cmap="magma"); road_overlay(ax); ax.set_axis_off(); st.pyplot(fig)
+                panel(lambda ax, pm=pm: ax.imshow(pm[li], origin="lower", extent=ext, vmin=0, vmax=1, cmap="magma"), f"Member {name} at +{lead} min")
     st.subheader(f"Road alerts ({len(alerts)})")
-    st.dataframe(alerts)
+    gmap = out.get("genesis")
+    st.caption(f"threshold {thr:.2f} · stations reporting dust now: {int((out.get('station_now') == 1).sum()) if out.get('station_now') is not None else 'n/a'} · "
+               f"genesis cells (no dust within 50 km): {100 * float(gmap.mean()):.0f} % of the domain" if gmap is not None else f"threshold {thr:.2f}")
+    if alerts:
+        import pandas as pd
+        df = pd.DataFrame(alerts)
+        df["p_max"] = df["p_max"].map(lambda v: f"{v:.2f}")
+        df["genesis"] = df["genesis"].map(lambda g: "onset (no dust nearby)" if g else "dust already nearby")
+        st.dataframe(df[["segment", "lead_min", "p_max", "level", "genesis"] + (["held"] if "held" in df else [])], hide_index=True, use_container_width=True)
+    else:
+        st.info("No segment above the alert threshold.")
 else:
     st.title("DustAhead · Interstate 10 dust alerts")
-    st.caption(f"Updated {out['t0']} UTC · forecasts every 10 min")
+    st.caption(f"Updated {str(out['t0'])[:16]} UTC · forecasts every 10 min")
     if not alerts:
         st.success("No dust expected on I-10 in the next 60 minutes.")
     for a in alerts:

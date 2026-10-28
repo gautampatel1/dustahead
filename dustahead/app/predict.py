@@ -45,6 +45,7 @@ class DustAhead:
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         paths = [checkpoint] if isinstance(checkpoint, (str, Path)) else list(checkpoint)
         self.members = [load_checkpoint(p, self.device) for p in paths]      # [(model, ck), ...]
+        self.member_names = [Path(p).parent.name for p in paths]            # e.g. unet_all_v4, gated_unet_v8
         self.model = self.members[0][0]                                      # kept for single-model callers
         self.temperature = self.members[0][1].get("temperature", 1.0)
         self.grid = Grid.from_config(self.cfg)
@@ -105,14 +106,14 @@ class DustAhead:
             x = np.concatenate([x, (station_now if station_now is not None else np.zeros((1,) + x.shape[1:], np.float32))], 0)
         xt = torch.from_numpy(x.astype(np.float32))[None].to(self.device)
         probs, gate, members = None, None, {}
-        for model, ck in self.members:
+        for (model, ck), mname in zip(self.members, self.member_names):
             p, z, h = model(xt, return_parts=True)
             pm = p[0].float().cpu().numpy()
             T = ck.get("temperature", 1.0)
             if T != 1.0:
                 from ..eval.metrics import apply_temperature
                 pm = apply_temperature(pm, T)
-            members[ck.get("name", "model")] = pm
+            members[mname] = pm
             probs = pm if probs is None else np.maximum(probs, pm)
             if h is not None:                       # gate shown = most permissive member (max), consistent with the max ensemble
                 g = torch.sigmoid(h)[0, 0].float().cpu().numpy()
