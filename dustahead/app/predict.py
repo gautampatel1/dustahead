@@ -114,8 +114,9 @@ class DustAhead:
                 pm = apply_temperature(pm, T)
             members[ck.get("name", "model")] = pm
             probs = pm if probs is None else np.maximum(probs, pm)
-            if h is not None and gate is None:
-                gate = torch.sigmoid(h)[0, 0].float().cpu().numpy()
+            if h is not None:                       # gate shown = most permissive member (max), consistent with the max ensemble
+                g = torch.sigmoid(h)[0, 0].float().cpu().numpy()
+                gate = g if gate is None else np.maximum(gate, g)
         if gate is None:
             gate = np.ones(probs.shape[1:], np.float32)
         genesis_map = self.genesis_map(st_ij, st_now, probs.shape[1:])
