@@ -150,3 +150,30 @@ differ between the two seasons are the HRRR 7-day rain and humidity, not the soi
 This is the mechanism behind "zero genesis hits on monsoon cases" in every version so far.
 Fix under test as **v8 = gate on static + physics prior only** (`configs/gate_static.yaml`; HRRR moves to the U-Net
 branch), so the gate can only express erodibility, which is what P(dust) = P(outflow) × P(erodible) was meant to mean.
+
+## v8 — gate on static + physics prior only (`configs/gate_static.yaml`): the gate opens in monsoon season
+
+Gate inspection (same samples as above): 2025-08-25 Phoenix σ(h) mean 0.22–0.30, p90 0.74–0.82, max 1.0 (was 0.000
+everywhere); 2025-08-21 mean 0.17–0.30, max ≥ 0.99. The seasonal shortcut is gone.
+
+| model | +15 | +30 | +60 | genesis +15 / +30 / +60 at 0.5, 95 % CI | p vs persistence +30 (Holm) |
+|---|---|---|---|---|---|
+| gated_unet v4 | 0.425 | 0.327 | **0.261** | 0.02 [0, 0.04] / 0.086 [0, 0.15] / 0.134 [0, 0.27] | 0.078 (0.31) |
+| **gated_unet v8** | **0.508** | **0.383** | 0.210 | **0.056 [0.01, 0.08] / 0.076 [0.03, 0.10] / 0.096 [0.03, 0.13]** | **0.014 (0.056)** |
+| station persistence | 0.443 | 0.354 | 0.191 | 0 | — |
+
+First model whose genesis confidence intervals exclude zero at every lead, and the first genesis hits on monsoon
+haboobs (+60, threshold 0.55: Phoenix 2025-08-25 4 of 13, 2025-08-21 1 of 6; the spring events keep 12/26, 15/15,
+17/23). The price is +60 min skill on persistence cases (0.210 vs 0.261): with HRRR in the U-Net branch the model is
+sharper at short leads and less so at +60.
+
+Ensembles (offline, best threshold):
+
+| | +15 all / genesis | +30 all / genesis | +60 all / genesis |
+|---|---|---|---|
+| max(unet_all v4, gated v4) | 0.495 / 0.095 | 0.395 / 0.109 | 0.276 / 0.182 |
+| max(unet_all v4, gated v8) | 0.484 / 0.061 | 0.385 / 0.068 | 0.241 / 0.113 |
+| **max(unet_all v4, gated v4, gated v8)** | 0.489 / 0.082 | 0.388 / 0.105 | 0.272 / 0.180 |
+
+**Product: the three-member max** — same skill as the v4 pair within noise, plus monsoon coverage from v8.
+**Paper headline model: gated_unet v8** (interpretable gate, genesis significance, Holm p = 0.056 vs persistence).

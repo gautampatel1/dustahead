@@ -49,14 +49,15 @@ streamlit run dustahead/app/dashboard.py -- --ckpt runs/latest/best.pt --demo
   val 5,514 / test 3,029 in `data/samples/` (index.csv). Split: train 2018-24 + half of 2025 events, val = other half, test 2026 frozen.
 - Inputs: 62 built channels + station-observation channel (sampler.paint_station_now). Geolocation is pyproj-free
   (`goes.geos_scan_angles`) because Windows Application Control now blocks pyproj's DLL on the PC.
-- Results: `results/val_2025_eventsplit/README.md`. **Prototype model = max(unet_all v4, gated_unet v4)** (CSI
-  0.495/0.395/0.276 vs persistence 0.443/0.354/0.191; genesis 0.10/0.11/0.18). Closed directions: genesis loss weights
-  (v5, v6), station dropout (v7). Open: v8 gate on static+physics only (v4's gate is shut over the whole domain in monsoon season).
+- Results: `results/val_2025_eventsplit/README.md`. **Prototype model = max(unet_all v4, gated_unet v4, gated_unet v8)**
+  (CSI 0.489/0.388/0.272 vs persistence 0.443/0.354/0.191; genesis 0.08/0.11/0.18). **Paper model = gated_unet v8**
+  (gate on static+physics only: genesis CIs exclude 0, Holm p 0.056 vs persistence, first monsoon genesis hits).
+  Closed directions: genesis loss weights (v5, v6), station dropout (v7). v4's gate was shut domain-wide in monsoon season.
 - Product: `app/predict.py` ensemble + live ASOS channel + per-lead thresholds (config `product:`) + `AlertTracker`
   hysteresis; `scripts/07_demo_figures.py` makes slide panels + alerts.csv per event; dashboard replays by event.
 - PC: venv `C:\DustAhead\.venv`, RTX 5060 Ti, ~150 s/epoch. Job runner: drop a .bat into `jobs\q2\` (logs in `logs\jobs\`).
   Claude's Linux shell on the PC: 3-minute commands, checks and fixes only.
-- Next: v8 result -> slides/doc update to real numbers, dashboard walkthrough, then 2026 test once at the end.
+- Next: slides/doc update to real numbers, dashboard walkthrough, 2026 test once at the end (05_evaluate --split test).
 
 ## Known gaps / TODO (Phase 1)
 - `hrrr.dcape_proxy` is a proxy (HRRR has no DCAPE). Say so in the paper.
