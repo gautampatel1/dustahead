@@ -11,27 +11,47 @@ Everything is logged to `logs\bootstrap.log` and `logs\build_samples.log`. Resum
 (launched this way on 2026-10-24 02:08; GPU = RTX 5060 Ti 16 GB, torch 2.11+cu128.)
 `scripts\setup_windows.ps1` is the conda alternative if pip wheels ever fail.
 
-## Data build (prepared on 2026-10-24)
-Done: `data\labels\events.csv` (152 dust events + 268 null days, 2023-2026), `data\static\*.npy` (six
-ground layers), first 3 samples of the Phoenix 2025-08-25 event in `data\samples\val\`.
+## Current state (28 Oct 2026)
+Data set complete (train 13,730 / val 5,514 / test 3,029 samples, 2018-2026). Models v1-v8 trained; product =
+max(unet_all_v4, gated_unet_v4, gated_unet_v8). Results in `results\val_2025_eventsplit\README.md`.
 
-Run the full build in the background (resumable - rerun the same command after any interruption):
-```
-conda activate dustahead
-python scripts\03_build_samples.py --workers 6 > logs\build_samples.log 2>&1
-```
-~11,000 samples; measured 5.7 s each with 6 worker processes (network-bound, ~80 Mbit/s) -> about 17 h. Check progress any time with
-`Get-Content logs\build_samples.log -Tail 20` or by counting files in `data\samples\*`.
+## The job runner (how everything runs on this PC)
+Double-click `runner2.bat` once and leave its window open. It activates `.venv`, keeps the PC awake and runs every
+`.bat` dropped into `jobs\q2\` in name order, logging to `logs\jobs\<name>.log` and moving the job to `jobs\q2_done\`.
+`logs\runner2.log` is the queue history. A job is one or more commands, e.g.
 
-## Training (after the build)
 ```
-python scripts\04_train.py --model gated_unet        > logs\train_gated.log 2>&1
-python scripts\05_evaluate.py --ckpt runs\latest\best.pt --split val
+@echo off
+python -u scripts\04_train.py --model gated_unet --config configs\gate_static.yaml --run-dir runs\gated_unet_v8
+python -u scripts\05_evaluate.py --ckpt runs\gated_unet_v8\best.pt --split val
 ```
-Then the ablations: `--model unet_all`, `--model unet_dust_only`, `--model convlstm`.
-The 2026 test split is evaluated ONCE at the very end (`--split test`).
 
-## Dashboard
+Jobs run one at a time; a long job blocks the queue. Only `.venv` Python is on the path.
+
+## Data build
+Done. To rebuild or extend (resumable - rerun after any interruption):
 ```
-streamlit run dustahead\app\dashboard.py -- --ckpt runs\latest\best.pt --demo
+python scripts\01_build_event_list.py --years 2018 2019 2020 2021 2022 2023 2024 2025 2026
+python scripts\03_build_samples.py --workers 6
+python scripts\06_index_samples.py
 ```
+Measured 5-7 s per sample with 6 workers (network-bound). The HRRR archive has gaps in 2018-2020 (about 1.4 % of
+samples are skipped and logged). `pyproj` is blocked by Windows Application Control on this PC; the code no longer needs it.
+
+## Training and evaluation
+```
+python scripts\04_train.py --model gated_unet --config configs\gate_static.yaml --run-dir runs\gated_unet_v8
+python scripts\05_evaluate.py --ckpt runs\gated_unet_v8\best.pt --split val
+```
+About 150 s per epoch on the RTX 5060 Ti; a run early-stops after 10-27 epochs. Evaluation on val takes ~7 min and also
+writes `eval_val_preds.npz` for offline analysis. Overlays: `configs\genesis_w3.yaml`, `genesis_w1.yaml`,
+`station_dropout.yaml`, `gate_static.yaml`. The 2026 test split is evaluated ONCE at the very end (`--split test`).
+
+## Figures, live test, dashboard
+```
+python scripts\07_demo_figures.py --event dust_20250825_2236 --split val      # 2x3 panels + alerts.csv
+python scripts\09_slide_media.py                                            # replay strips, gate maps, threshold curves
+python scripts\10_live_smoke.py                                             # live GOES/GLM/HRRR/ASOS -> prediction
+python scripts\launch_dashboard.py --demo --samples data\samples\val         # detached Streamlit on http://localhost:8501
+```
+The dashboard PID is written to `logs\dashboard.pid`; stop it with `taskkill /PID <pid> /T /F`.
