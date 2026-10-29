@@ -129,9 +129,13 @@ if view.startswith("Admin"):
         st.info("No segment above the alert threshold.")
 else:
     st.title("DustAhead · Interstate 10 dust alerts")
-    st.caption(f"Updated {str(out['t0'])[:16]} UTC · forecasts every 10 min")
+    st.caption(f"Updated {str(out['t0'])[:16]} UTC · forecasts every 10 min · alerts hold at least 30 min")
     if not alerts:
         st.success("No dust expected on I-10 in the next 60 minutes.")
     for a in alerts:
-        (st.error if a["level"] == "severe" else st.warning)(
-            f"**{a['segment']}** · dust likely in **{a['lead_min']} min** (confidence {a['p_max']:.0%}). Slow down, pull aside, lights off.")
+        box = st.error if a["level"] == "severe" else st.warning
+        when = "now" if a["lead_min"] <= 15 else f"in about {a['lead_min']} min"
+        box(f"### {a['segment']}\n**Dust {when}** · confidence {a['p_max']:.0%}"
+            + (" · forming, no station reports dust yet" if a.get("genesis") else " · dust already reported nearby")
+            + (" · holding" if a.get("held") else "")
+            + "\n\nPull aside, turn off lights, stay buckled, wait it out.")

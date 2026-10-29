@@ -37,6 +37,10 @@ I10 = [(-114.72, 33.61), (-113.90, 33.63), (-113.20, 33.55), (-112.70, 33.43), (
        (-110.40, 32.07), (-110.08, 32.17), (-109.78, 32.26), (-109.45, 32.25), (-109.04, 32.27), (-108.70, 32.33),
        (-108.20, 32.28), (-107.75, 32.26), (-107.30, 32.26), (-106.90, 32.30), (-106.65, 32.20), (-106.45, 31.95),
        (-106.38, 31.81)]
+# nearest town or landmark to each waypoint, west -> east, for human-readable segment names
+I10_NAMES = ["Ehrenberg (CA line)", "Quartzsite", "Tonopah", "Buckeye", "Phoenix", "Tempe", "Chandler", "Casa Grande",
+             "Eloy", "Picacho Peak", "Marana", "Tucson", "Vail", "Benson", "Dragoon", "Willcox", "Bowie", "San Simon",
+             "Lordsburg", "Deming", "Akela", "Las Cruces West", "Las Cruces", "Anthony", "El Paso"]
 
 
 class DustAhead:
@@ -152,7 +156,7 @@ class DustAhead:
             lon = np.linspace(x0, x1, n_per_segment)
             lat = np.linspace(y0, y1, n_per_segment)
             i, j = self.grid.to_ij(lon, lat)
-            segs.append((f"I-10 seg {k:02d} ({x0:.2f},{y0:.2f})->({x1:.2f},{y1:.2f})", i, j))
+            segs.append((f"I-10 {I10_NAMES[k]} \u2192 {I10_NAMES[k + 1]}", i, j))
         return segs
 
     def road_alerts(self, probs: np.ndarray, threshold: float | None = None, genesis_map: np.ndarray | None = None) -> list[dict]:
