@@ -28,6 +28,14 @@ CSI = Critical Success Index at the best threshold; *genesis* = stations with no
 forecast time. Full tables, intervals, p-values and the eight-version ablation: `results/val_2025_eventsplit/README.md`.
 The 2026 test year is sealed and evaluated once at the end.
 
+## The dashboard
+| Admin view (Phoenix haboob, 25 Aug 2025 22:30 UTC) | User view (same forecast) |
+|---|---|
+| ![admin](docs/screenshots/dashboard_admin_phoenix_2025-08-25.jpg) | ![user](docs/screenshots/dashboard_user_alerts.jpg) |
+
+Admin: Dust RGB, ensemble P(dust), ground gate, target and every member map, plus the segment alert table.
+User: one card per I-10 segment ("Dust now / in about N min · confidence · forming or already reported · holding").
+
 ## Quick start
 ```bash
 git clone https://github.com/gautampatel1/dustahead && cd dustahead
