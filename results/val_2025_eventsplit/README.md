@@ -177,3 +177,80 @@ Ensembles (offline, best threshold):
 
 **Product: the three-member max** — same skill as the v4 pair within noise, plus monsoon coverage from v8.
 **Paper headline model: gated_unet v8** (interpretable gate, genesis significance, Holm p = 0.056 vs persistence).
+
+## 30 Oct — fine-tuning (v9), the other 2025 fold, 2-fold pooling, and the +15 persistence floor
+
+Four cheap experiments after the 2026 test run (none touches the test split; chosen on validation only).
+
+### v9 = v8 fine-tuned (`configs/finetune_v9.yaml`: init from v8, lr 1e-4, EMA 0.999, 12 epochs max): neutral on CSI, better calibrated
+
+| model | +15 | +30 | +60 | genesis +15 / +30 / +60 at 0.5 (raw) | Brier +30 (raw) |
+|---|---|---|---|---|---|
+| gated_unet v8 | **0.508** | **0.383** | 0.210 | 0.050 [0.01, 0.07] / 0.060 [0.02, 0.08] / 0.093 [0.03, 0.13] | 0.0027 |
+| gated_unet v9 | 0.488 | 0.362 | 0.211 | 0.046 [0.02, 0.06] / 0.065 [0.03, 0.09] / 0.093 [0.03, 0.13] | **0.0024** |
+
+v8's best epoch was its second (`gated_unet_v8_trainlog.json`): the recipe peaks early and every later epoch overfits,
+and a 10× lower learning rate with weight averaging does not change that — training loss fell 1.04 → 0.69 over nine
+epochs while the validation score stayed flat (best at epoch 4). The averaged weights are better calibrated (Brier
+−10 % before any Platt fit, same Holm p = 0.056) but not more skilful. **v8 stays the paper model; v9 is not used.**
+Fine-tuning is closed as a direction unless the data change.
+
+### Fold 1 = the v8 recipe trained on the *other* half of the 2025 events (`configs/fold1.yaml`)
+
+The md5 split is unbalanced: fold 0's validation half (v8's) holds 158 / 208 / 208 station positives at +15 / +30 / +60,
+fold 1's holds 553 / 739 / 750 — fold 1 contains the big spring events, and station persistence is stronger there
+(0.546 / 0.473 / 0.382).
+
+| fold 1 validation | +15 | +30 | +60 | genesis +15 / +30 / +60 at 0.5 (raw), 95 % CI | p vs persistence +30 (Holm) |
+|---|---|---|---|---|---|
+| station persistence | **0.546** | **0.473** | **0.382** | 0 | — |
+| gated_unet v8 recipe, fold 1 | 0.528 | 0.453 | 0.361 | 0.052 [0.02, 0.08] / 0.054 [0.01, 0.08] / 0.071 [0.02, 0.11] | **0.004 (0.016)** |
+
+On this half the model is *below* station persistence on all-station CSI at every lead (−0.02) while keeping the same
+onset skill. The all-station advantage seen on fold 0 therefore does not generalise; the onset skill does.
+
+### 2-fold pooled: every 2025 event scored out of sample once (`scripts/12_pool_genesis.py`, `val_pool_v8_2fold*.json`)
+
+129 events, 445k station-times; genesis positives 171 / 296 / 414 (was 47 / 83 / 130 on fold 0 alone).
+
+| pooled 2025, threshold 0.5 | +15 | +30 | +60 |
+|---|---|---|---|
+| genesis CSI, raw model (95 % CI) | **0.051 [0.03, 0.07]** | **0.057 [0.03, 0.08]** | **0.081 [0.05, 0.11]** |
+| genesis POD / FAR | 0.16 / 0.93 | 0.18 / 0.92 | 0.25 / 0.89 |
+| p vs station persistence (paired event bootstrap) | 0.0000 | 0.0000 | 0.0000 |
+| all-station CSI, best threshold: model / persistence | 0.501 / 0.521 | 0.414 / 0.445 | 0.314 / 0.336 |
+
+**This is the paper's onset claim**: with three times the positives the intervals sit well above zero at every lead
+and the paired p-values are < 0.001 before correction (< 0.004 after Holm over four baselines) — the fold-0 result
+(p = 0.056) was limited by sample size, not effect size. The honest companion statement: pooled over all of 2025 the
+model is at or slightly below station persistence on all-station CSI; its contribution is the 15–25 % of onsets it
+catches where persistence catches none, at FAR ≈ 0.9. The same pattern appeared on the 2026 test (`results/test_2026`).
+
+### Alert policy: max(model, station persistence) at +15 — negative on validation
+
+| | +15 CSI (thr) fold 0 | fold 1 | pooled |
+|---|---|---|---|
+| gated v8 / v9 alone | 0.510 (0.85) / 0.493 (0.70) | 0.528 (0.75) | 0.501 (0.80) |
+| + persistence floor at +15 | 0.442 / 0.450 | 0.548 | 0.523 |
+| station persistence | 0.443 | 0.546 | 0.521 |
+
+The floor drags the forecast to persistence's score wherever it is applied: it imports persistence's false alarms
+(stations whose dust clears within 15 min), which the model was correctly discounting (P < 0.7 at those stations).
+It helps on fold 1 only because persistence is better than the model there. **Not adopted**: `product.persistence_leads`
+stays empty, and the +15 lead keeps the model's own threshold. The 2026 +15 loss to persistence is a distribution
+shift between years, not a policy gap.
+
+### Ensembles with calibrated members (`scripts/11_ensemble_eval.py`, best overall threshold; genesis at that threshold)
+
+| max ensemble | +15 | +30 | +60 | genesis +60 at the overall threshold |
+|---|---|---|---|---|
+| unet_all v4 + gated v4 + gated v8 (product) | 0.513 | 0.399 | 0.246 | 0.158 [0.05, 0.20] |
+| unet_all v4 + gated v4 + gated v9 | 0.500 | 0.394 | 0.252 | 0.156 [0.03, 0.21] |
+| unet_all v4 + gated v9 | 0.495 | 0.385 | 0.229 | 0.090 [0, 0.17] |
+
+No ensemble with v9 beats the product ensemble; `product.checkpoints` is unchanged. Note that at the best *overall*
+threshold (0.85) gated v8 alone has zero onset skill — onset needs the lower genesis threshold the product policy
+already provides (`product.genesis_thresholds`); the table above is the "single threshold" view.
+
+**Closed directions after today:** fine-tuning/EMA (v9), persistence floor. **Open:** HRRR short-range forecast
+fields as inputs, longer satellite history, self-supervised pre-training of the sky branch — all aimed at onset POD.
