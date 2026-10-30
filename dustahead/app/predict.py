@@ -124,9 +124,27 @@ class DustAhead:
                 gate = g if gate is None else np.maximum(gate, g)
         if gate is None:
             gate = np.ones(probs.shape[1:], np.float32)
+        # Lead-dependent policy: at the short leads listed in product.persistence_leads the forecast is floored by
+        # station persistence (P = 1 within 12 km of a station reporting dust NOW). The network already sees those
+        # reports through the station channel but assigns them P ~ 0.6-0.9; at +15 min "dust here now" is the best
+        # available forecast, and the floor stops the deployed threshold from dropping a storm that is already on the road.
+        for lead in self.cfg.get("product", {}).get("persistence_leads", []) or []:
+            if lead in self.leads and st_ij is not None and st_now is not None:
+                probs[self.leads.index(lead)] = np.maximum(probs[self.leads.index(lead)],
+                                                           self.station_persistence_map(st_ij, st_now, probs.shape[1:]))
         genesis_map = self.genesis_map(st_ij, st_now, probs.shape[1:])
         return dict(probs=probs, gate=gate, members=members, genesis=genesis_map,
                     alerts=self.road_alerts(probs, genesis_map=genesis_map))
+
+    @staticmethod
+    def station_persistence_map(st_ij, st_now, shape, radius_cells: int = 3) -> np.ndarray:
+        """1.0 within ~12 km (3 cells) of every station reporting dust now, else 0 (models/baselines.station_persistence)."""
+        m = np.zeros(shape, np.float32)
+        yy, xx = np.mgrid[0:shape[0], 0:shape[1]]
+        for (i, j), n in zip(st_ij, st_now):
+            if n == 1:
+                m[np.hypot(yy - i, xx - j) <= radius_cells] = 1.0
+        return m
 
     def genesis_map(self, st_ij, st_now, shape, radius_cells: int = 12) -> np.ndarray:
         """True where no station within ~50 km reports dust now (unknown stations -> genesis)."""

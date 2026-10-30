@@ -1,0 +1,13 @@
+# Experiment config (v9): FINE-TUNE gated_unet v8 instead of training from scratch.
+# Why: v8 is the paper model (static gate; onset CIs exclude zero). Continuing from its weights at a 10x lower learning
+# rate with an exponential moving average of the weights (EMA) settles into a flatter, better-calibrated minimum; the
+# usual gain in segmentation is ~0.5-1 CSI point and a lower Brier score, at the cost of ~10 epochs.
+# Same data and the same validation half as v8, so the comparison is clean.
+model:
+  gate_channels: [static, physics]
+train:
+  init_from: runs/gated_unet_v8/best.pt
+  lr: 0.0001
+  epochs: 12
+  patience: 5
+  ema_decay: 0.999      # ~1,000-step window = ~0.6 epoch at batch 8

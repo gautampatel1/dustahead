@@ -1,6 +1,15 @@
-"""Training loop: AdamW + cosine schedule, mixed precision, early stopping on validation station CSI."""
+"""Training loop: AdamW + cosine schedule, mixed precision, early stopping on validation station CSI.
+
+Two optional extras, both read from cfg["train"]:
+  init_from   path of a checkpoint whose weights initialise the model (fine-tuning: continue from a trained run at a
+              lower learning rate instead of starting from random weights). The optimiser state is NOT restored.
+  ema_decay   > 0 keeps an Exponential Moving Average (EMA) of the weights, theta_ema <- d * theta_ema + (1 - d) * theta
+              after every optimiser step. The EMA copy is what is validated and saved: averaging along the trajectory
+              lands in a flatter, better-calibrated minimum than the last noisy SGD iterate (Polyak averaging).
+"""
 from __future__ import annotations
 
+import copy
 import json
 import time
 from pathlib import Path
@@ -44,6 +53,24 @@ def evaluate(model, loader, device, threshold=0.5):
     return out
 
 
+class EMA:
+    """Exponential moving average of a model's parameters and buffers, kept on a deep copy of the model."""
+
+    def __init__(self, model: torch.nn.Module, decay: float):
+        self.decay = decay
+        self.model = copy.deepcopy(model).eval()
+        for p in self.model.parameters():
+            p.requires_grad_(False)
+
+    @torch.no_grad()
+    def update(self, model: torch.nn.Module):
+        d = self.decay
+        for e, p in zip(self.model.parameters(), model.parameters()):
+            e.mul_(d).add_(p.detach(), alpha=1 - d)
+        for e, b in zip(self.model.buffers(), model.buffers()):   # BatchNorm running stats: track, do not average
+            e.copy_(b)
+
+
 def train(cfg: dict, model_name: str | None = None, run_dir: str | Path | None = None, max_epochs: int | None = None,
           device: str | None = None) -> Path:
     T = cfg["train"]
@@ -64,6 +91,12 @@ def train(cfg: dict, model_name: str | None = None, run_dir: str | Path | None =
     dl_va = DataLoader(va, T["batch_size"], num_workers=T["num_workers"])
 
     model = build_model(cfg, name).to(device)
+    if T.get("init_from"):
+        ck0 = torch.load(T["init_from"], map_location=device, weights_only=False)
+        model.load_state_dict(ck0["model"])
+        print(f"initialised from {T['init_from']} (epoch {ck0.get('epoch')}, {ck0.get('name')})", flush=True)
+    ema = EMA(model, float(T["ema_decay"])) if T.get("ema_decay") else None
+    eval_model = ema.model if ema is not None else model
     opt = torch.optim.AdamW(model.parameters(), lr=T["lr"], weight_decay=T["weight_decay"])
     epochs = max_epochs or T["epochs"]
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, epochs)
@@ -98,6 +131,8 @@ def train(cfg: dict, model_name: str | None = None, run_dir: str | Path | None =
                 continue
             scaler.step(opt)
             scaler.update()
+            if ema is not None:
+                ema.update(model)
             tot += loss.item() * b["x"].shape[0]
             n += b["x"].shape[0]
         sched.step()
@@ -106,12 +141,15 @@ def train(cfg: dict, model_name: str | None = None, run_dir: str | Path | None =
         if not all(torch.isfinite(q).all() for q in model.parameters()):
             print("  non-finite weights: restoring best checkpoint and halving the learning rate", flush=True)
             if (run_dir / "best.pt").exists():
-                model.load_state_dict(torch.load(run_dir / "best.pt", map_location=device, weights_only=False)["model"])
+                sd = torch.load(run_dir / "best.pt", map_location=device, weights_only=False)["model"]
+                model.load_state_dict(sd)
+                if ema is not None:
+                    ema.model.load_state_dict(sd)
             for g in opt.param_groups:
                 g["lr"] *= 0.5
-        val = evaluate(model, dl_va, device, cfg["eval"]["threshold"])
+        val = evaluate(eval_model, dl_va, device, cfg["eval"]["threshold"])
         score = float(np.nanmean([v["csi_best"] for v in val.values()]))
-        row = dict(epoch=ep, train_loss=tot / max(n, 1), val=val, val_csi=score, lr=sched.get_last_lr()[0])
+        row = dict(epoch=ep, train_loss=tot / max(n, 1), val=val, val_csi=score, lr=sched.get_last_lr()[0], ema=ema is not None)
         log.append(row)
         print(f"ep {ep:03d} loss {row['train_loss']:.4f} val bestCSI {score:.3f} "
               + " ".join(f"{k}:{v['csi_best']:.2f}@{v['thr_best']:.2f}" for k, v in val.items())
@@ -119,7 +157,8 @@ def train(cfg: dict, model_name: str | None = None, run_dir: str | Path | None =
               + f"  ({time.time() - t_ep:.0f}s)", flush=True)
         if score > best:
             best, bad = score, 0
-            torch.save(dict(model=model.state_dict(), cfg=cfg, name=name, epoch=ep, val=val), run_dir / "best.pt")
+            torch.save(dict(model=eval_model.state_dict(), cfg=cfg, name=name, epoch=ep, val=val,
+                            ema=ema is not None, init_from=T.get("init_from")), run_dir / "best.pt")
         else:
             bad += 1
             if bad >= T["patience"]:

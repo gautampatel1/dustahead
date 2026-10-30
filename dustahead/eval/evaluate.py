@@ -71,6 +71,16 @@ def run(ckpt: str | Path, cfg: dict, split: str = "test", baselines=("persistenc
         preds["model"] = apply_platt(preds["model"], a, b)
     else:
         preds["model"] = apply_temperature(preds["model"], T)
+    # product policy variant: the model floored by station persistence at the short leads (app/predict.py does the
+    # same on the map; at station level the element-wise max is identical). Evaluated whenever the baseline is present.
+    pl = cfg.get("product", {}).get("persistence_leads", [15]) or []
+    if "station_persistence" in preds and pl:
+        pp = preds["model"].copy()
+        for lead in pl:
+            if lead in leads:
+                pp[:, leads.index(lead)] = np.maximum(pp[:, leads.index(lead)], preds["station_persistence"][:, leads.index(lead)])
+        preds["model+persistence"] = pp
+        fss_pix["model+persistence"] = fss_pix["model"]      # pixel FSS is not recomputed for the policy variant
 
     report = dict(split=split, checkpoint=str(ckpt), temperature=T, temperature_note=t_note, leads=leads, models={})
     for name, p in preds.items():

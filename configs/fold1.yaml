@@ -1,0 +1,8 @@
+# Experiment config (v8 fold 1): the SAME recipe as v8 (configs/gate_static.yaml) trained on the other half of 2025.
+# Why: 2-fold cross-validation over the 2025 events. The two runs' validation predictions together cover every 2025
+# event out of sample, doubling the onset positives behind the genesis confidence intervals (~130 -> ~260 at +60).
+# Evaluate with: python scripts/05_evaluate.py --ckpt runs/gated_unet_v8_fold1/best.pt --config configs/fold1.yaml
+model:
+  gate_channels: [static, physics]
+splits:
+  val_fold: 1

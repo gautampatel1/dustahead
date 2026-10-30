@@ -38,10 +38,14 @@ def split_files(root: str | Path, split: str, cfg: dict | None = None) -> tuple[
         return files, rows
     idx = idx.copy()
     idx["h"] = idx.event.map(_event_hash)
+    # fold 0 (default): events with hash < frac validate, the rest train. fold 1 swaps the two halves, so training
+    # a second model on fold 1 gives out-of-sample predictions for EVERY 2025 event (2-fold cross-validation).
+    fold = int((cfg or {}).get("splits", {}).get("val_fold", 0))
+    in_val = (idx.h < frac) if fold == 0 else (idx.h >= frac)
     if split == "train":
-        sel = idx[(idx.split == "train") | ((idx.split == "val") & (idx.h >= frac))]
+        sel = idx[(idx.split == "train") | ((idx.split == "val") & ~in_val)]
     else:
-        sel = idx[(idx.split == "val") & (idx.h < frac)]
+        sel = idx[(idx.split == "val") & in_val]
     files = [root / r.split / r.file for r in sel.itertuples()]
     return files, sel.reset_index(drop=True)
 
