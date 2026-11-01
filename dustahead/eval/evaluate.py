@@ -9,7 +9,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
-from ..data.sampler import genesis_per_station as _genesis_ij, load_sample, paint_station_now
+from ..data.sampler import genesis_per_station as _genesis_ij, input_stack, load_sample, wants_forecast
 from ..models.baselines import BASELINES, SAMPLE_BASELINES
 from ..train.dataset import DustDataset
 from ..train.train import load_checkpoint
@@ -27,14 +27,13 @@ def _station_values(p, st_ij, st_y):
     return p[:, i, j].T, st_y          # (S, L), (S, L)
 
 
-def collect(model, ds: DustDataset, device, baselines=()):
+def collect(model, ds: DustDataset, device, baselines=(), with_forecast: bool = False):
     """Returns per-model station probabilities (N, L), labels (N, L), genesis flags, event ids, FSS lists."""
     out = {name: [] for name in ("model",) + tuple(baselines)}
     ys, gen, ev, fss_pix = [], [], [], {name: [] for name in out}
     for k in range(len(ds)):
         s = load_sample(ds.files[k])
-        x = s["x"].astype(np.float32)
-        x = np.concatenate([x, paint_station_now(s["st_ij"], s["st_now"], x.shape[1:])[None]], 0)
+        x = input_stack(s, None, with_forecast)
         with torch.no_grad():
             p = model(torch.from_numpy(x)[None].to(device))[0].cpu().numpy()
         preds = {"model": p, **{b: (BASELINES[b](x) if b in BASELINES else SAMPLE_BASELINES[b](s)) for b in baselines}}
@@ -54,15 +53,16 @@ def run(ckpt: str | Path, cfg: dict, split: str = "test", baselines=("persistenc
         device: str | None = None, calibrate_on: str = "val") -> dict:
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
     model, ck = load_checkpoint(ckpt, device)
+    wf = wants_forecast(ck["cfg"])          # the checkpoint knows whether it was trained with the forecast block
     leads = cfg["time"]["leads_min"]
     thr, B = cfg["eval"]["threshold"], cfg["eval"]["bootstrap"]
 
     # temperature scaling fitted on the validation split, applied to the evaluated split
     T, t_note = 1.0, "none"
     if calibrate_on and calibrate_on != split:
-        pv, yv, *_ = collect(model, DustDataset(cfg["paths"]["samples"], calibrate_on, cfg=cfg), device)
+        pv, yv, *_ = collect(model, DustDataset(cfg["paths"]["samples"], calibrate_on, cfg=cfg), device, with_forecast=wf)
         T, t_note = temperature_scale(pv["model"].ravel(), yv.ravel()), f"fitted on {calibrate_on}"
-    preds, y, gen, ev, fss_pix = collect(model, DustDataset(cfg["paths"]["samples"], split, cfg=cfg), device, baselines)
+    preds, y, gen, ev, fss_pix = collect(model, DustDataset(cfg["paths"]["samples"], split, cfg=cfg), device, baselines, with_forecast=wf)
     if calibrate_on == split:            # two-parameter Platt fit on the evaluated split itself; say so in the report
         a, b = platt_scale(preds["model"].ravel(), y.ravel())
         T, t_note = 1.0 / max(a, 1e-3), f"Platt a={a:.3f} b={b:.3f} fitted in-sample on {split} (2 parameters)"

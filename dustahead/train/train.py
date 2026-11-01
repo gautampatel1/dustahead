@@ -53,6 +53,31 @@ def evaluate(model, loader, device, threshold=0.5):
     return out
 
 
+@torch.no_grad()
+def load_partial(model: torch.nn.Module, sd: dict) -> int:
+    """Load a state dict whose first convolution may have FEWER input channels than the model (new input
+    channels appended at the end). The old weights fill the leading input slots and the new slots start at
+    zero, so the warm-started model computes exactly what the checkpoint did until the new channels are
+    learned. Returns the number of widened tensors. Everything else must match exactly."""
+    own = model.state_dict()
+    widened = 0
+    for k, v in sd.items():
+        if k not in own:
+            continue
+        if k.endswith("idx"):                 # channel-index buffers belong to the model being built, not the checkpoint
+            continue
+        if own[k].shape == v.shape:
+            own[k].copy_(v)
+        elif own[k].dim() == 4 and own[k].shape[0] == v.shape[0] and own[k].shape[2:] == v.shape[2:] and own[k].shape[1] > v.shape[1]:
+            own[k].zero_()
+            own[k][:, :v.shape[1]].copy_(v)
+            widened += 1
+        else:
+            raise ValueError(f"{k}: checkpoint {tuple(v.shape)} vs model {tuple(own[k].shape)}")
+    model.load_state_dict(own)
+    return widened
+
+
 class EMA:
     """Exponential moving average of a model's parameters and buffers, kept on a deep copy of the model."""
 
@@ -93,8 +118,9 @@ def train(cfg: dict, model_name: str | None = None, run_dir: str | Path | None =
     model = build_model(cfg, name).to(device)
     if T.get("init_from"):
         ck0 = torch.load(T["init_from"], map_location=device, weights_only=False)
-        model.load_state_dict(ck0["model"])
-        print(f"initialised from {T['init_from']} (epoch {ck0.get('epoch')}, {ck0.get('name')})", flush=True)
+        n_partial = load_partial(model, ck0["model"])
+        print(f"initialised from {T['init_from']} (epoch {ck0.get('epoch')}, {ck0.get('name')}; "
+              f"{n_partial} tensor(s) widened for new input channels)", flush=True)
     ema = EMA(model, float(T["ema_decay"])) if T.get("ema_decay") else None
     eval_model = ema.model if ema is not None else model
     opt = torch.optim.AdamW(model.parameters(), lr=T["lr"], weight_decay=T["weight_decay"])

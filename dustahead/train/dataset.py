@@ -17,7 +17,7 @@ import pandas as pd
 import torch
 from torch.utils.data import Dataset
 
-from ..data.sampler import genesis_per_station, load_sample, paint_station_now
+from ..data.sampler import genesis_per_station, input_stack, load_sample, wants_forecast
 
 MAX_STATIONS = 96
 
@@ -75,6 +75,7 @@ class DustDataset(Dataset):
         # station-dropout augmentation (training only): hide a fraction of the current station reports so the model
         # cannot rely on the station channel alone and keeps using satellite/HRRR cues (robustness to missing reports)
         self.station_dropout = float((cfg or {}).get("train", {}).get("station_dropout", 0.0)) if split == "train" else 0.0
+        self.with_forecast = wants_forecast(cfg or {})      # append the HRRR forecast block `xf` (channels.hrrr_fcst)
 
     def sampler_weights(self, pos_weight: float = 8.0) -> torch.Tensor | None:
         """Per-sample weights for WeightedRandomSampler: samples with any positive count pos_weight x."""
@@ -90,11 +91,10 @@ class DustDataset(Dataset):
 
     def __getitem__(self, k):
         s = load_sample(self.files[k])
-        x = s["x"].astype(np.float32)
         st_now = s["st_now"].copy()
         if self.station_dropout > 0:
             st_now[self.rng.random(len(st_now)) < self.station_dropout] = -1       # -1 = no report
-        x = np.concatenate([x, paint_station_now(s["st_ij"], st_now, x.shape[1:])[None]], 0)   # channel 62
+        x = input_stack(s, st_now, self.with_forecast)      # x (62) + station channel (+ forecast block)
         y = s["y"].astype(np.float32)
         w = s["w"].astype(np.float32)
         ij = s["st_ij"].astype(np.int64)

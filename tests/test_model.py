@@ -71,3 +71,23 @@ def test_genesis_weight_and_config_overlay():
     cfg = load_config("configs/genesis_w3.yaml")
     assert cfg["loss"]["station_genesis_weight"] == 3.0 and cfg["model"]["base_channels"] == 32   # overlay keeps defaults
     assert DustLoss(cfg).gen_w == 3.0
+
+
+def test_warm_start_with_forecast_channels_reproduces_base_model():
+    """load_partial: a v8-style checkpoint (63 inputs) widened to 69 (HRRR forecast block) must compute the same
+    output while the new input weights are zero, whatever the forecast channels contain."""
+    import copy
+    from dustahead import load_config
+    from dustahead.models import build_model
+    from dustahead.train.train import load_partial
+    from dustahead.data.sampler import N_CH_IN, N_CH_IN_FCST
+    cfg = copy.deepcopy(load_config())
+    cfg["model"].update(base_channels=8, depth=2, gate_channels=["static", "physics"])
+    base = build_model(cfg, "gated_unet").eval()
+    cfg2 = copy.deepcopy(cfg); cfg2["channels"]["hrrr_fcst"] = 6
+    wide = build_model(cfg2, "gated_unet").eval()
+    n = load_partial(wide, base.state_dict())
+    assert n == 1                                   # only the first U-Net convolution is widened
+    x = torch.randn(2, N_CH_IN_FCST, 32, 32)
+    with torch.no_grad():
+        assert torch.allclose(base(x[:, :N_CH_IN]), wide(x), atol=1e-6)

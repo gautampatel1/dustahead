@@ -11,6 +11,11 @@ something an operational system would have had at forecast time. Fields:
 Rain: the f00 analysis has no precipitation, so hrrr_7day_rain sums the 0-6 h accumulations of the
 00/06/12/18 UTC runs (fxx=6) over the previous 7 days (28 fields). Cached per field-hour as .npy.
 DCAPE (downdraft CAPE) is not an HRRR output; dcape_proxy() uses the 2 m dewpoint depression. A proxy.
+
+FORECAST channels (optional, forecast_stack): the run initialised 2 h before the hour of t0 is complete on AWS by
+t0 (HRRR runs land ~50-90 min after initialisation), so its forecast hours are legitimately available at forecast
+time. fxx = 3 is valid at the hour after t0 (t0 + 10..60 min), fxx = 4 one hour later; together they bracket the
++60 min lead. If that run is missing (archive gaps in 2018-20) the run one hour earlier is tried with fxx + 1.
 """
 from __future__ import annotations
 
@@ -35,6 +40,7 @@ SEARCH = {
     "t2m": ":TMP:2 m above ground:",
     "d2m": ":DPT:2 m above ground:",
     "apcp6": ":APCP:surface:0-6 hour acc",
+    "refc": ":REFC:entire atmosphere:",      # composite reflectivity (dBZ): the forecast storm itself
 }
 ANALYSIS_FIELDS = ("u10", "v10", "gust", "cape", "rh2m", "soilm", "t2m", "d2m")
 _REGRID: dict = {}
@@ -79,6 +85,36 @@ def field_on_grid(run: dt.datetime, field: str, grid: Grid, fxx: int = 0) -> np.
             tmp = cache.with_suffix(f".{os.getpid()}_{id(out)}.tmp.npy")
             np.save(tmp, out)
             os.replace(tmp, cache)
+    return out
+
+
+FORECAST_FIELDS = ("u10", "v10", "gust", "cape", "refc")
+
+
+def forecast_runs(t0: dt.datetime) -> tuple[dt.datetime, int]:
+    """(run initialisation time, fxx valid at the first full hour after t0) for the newest run complete at t0."""
+    hour = t0.replace(minute=0, second=0, microsecond=0)
+    run = hour - dt.timedelta(hours=2)
+    return run, 3
+
+
+def forecast_stack(t0: dt.datetime, grid: Grid) -> dict[str, np.ndarray]:
+    """HRRR forecast fields available at t0: u10, v10, gust, cape, refc valid ~t0+1 h (fxx 3 of the run 2 h before
+    the hour) and gust valid ~t0+2 h (fxx 4). Keys match sampler.FCST_KEYS. A missing run falls back one hour
+    (fxx + 1); if that fails too the field is NaN (the sampler stores zeros and the caller should flag it)."""
+    run, fxx = forecast_runs(t0)
+    out: dict[str, np.ndarray] = {}
+    for key, field, dh in (("u10_f1", "u10", 0), ("v10_f1", "v10", 0), ("gust_f1", "gust", 0),
+                           ("cape_f1", "cape", 0), ("refc_f1", "refc", 0), ("gust_f2", "gust", 1)):
+        arr = None
+        for back in (0, 1):
+            try:
+                arr = field_on_grid(run - dt.timedelta(hours=back), field, grid, fxx=fxx + dh + back)
+                break
+            except Exception as e:  # noqa: BLE001
+                if back == 1:
+                    print(f"[hrrr] forecast {field} for {t0:%Y-%m-%d %H:%M}Z missing ({type(e).__name__}); NaN")
+        out[key] = arr if arr is not None else np.full(grid.shape, np.nan, np.float32)
     return out
 
 

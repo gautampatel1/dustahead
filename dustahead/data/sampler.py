@@ -8,6 +8,12 @@ Channel layout (index : content : normalisation)
   47-54  HRRR        u10/15, v10/15, gust/25, cape/2000, dcape/1500, rh/100, soilm (MSTAV fraction), rain7d/50
   55-60  static      elevation/3000, slope/30, bare, landcover, sand/100, clay/100
   61     physics     erodibility prior E in [0,1]
+  62     station     painted at load time by the dataset (+1 dust reported now, -1 clear, 0 no report)
+  63-68  hrrr_fcst   OPTIONAL (stored as a separate key `xf`, enabled by channels.hrrr_fcst): HRRR short-range
+                     FORECAST valid about t0+1 h from the run initialised 2 h before t0 (so it existed at t0):
+                     u10/15, v10/15, gust/25, cape/2000, refc/60 (composite reflectivity, dBZ), and gust/25 valid
+                     about t0+2 h. The forecast outflow is the physical driver of dust onset; the analysis only says
+                     what the wind is doing now.
 
 Targets (per lead 15/30/60 min):
   y[l]  (ny, nx) in {0,1}:   1 inside 12 km of a station reporting dust at t0+lead, 0 inside 12 km of
@@ -34,12 +40,41 @@ HRRR_KEYS = ("u10", "v10", "gust", "cape", "dcape", "rh2m", "soilm", "rain7d")
 HRRR_SCALE = (15.0, 15.0, 25.0, 2000.0, 1500.0, 100.0, 1.0, 50.0)
 STATIC_SCALE = (3000.0, 30.0, 1.0, 1.0, 100.0, 100.0)
 
+FCST_KEYS = ("u10_f1", "v10_f1", "gust_f1", "cape_f1", "refc_f1", "gust_f2")     # HRRR forecast channels (key `xf`)
+FCST_SCALE = (15.0, 15.0, 25.0, 2000.0, 60.0, 25.0)
+N_FCST = len(FCST_KEYS)
+
 CH = {  # channel index ranges, for the gate and for plotting
     "satellite": slice(0, 36), "lightning": slice(36, 42), "ir_change": slice(42, 47),
     "hrrr": slice(47, 55), "static": slice(55, 61), "physics": slice(61, 62),
     "station": slice(62, 63),   # painted at load time by the dataset: +1 dust reported at t0, -1 no dust, 0 no report (12 km discs)
+    "hrrr_fcst": slice(63, 63 + N_FCST),   # only present when the model asks for it (channels.hrrr_fcst > 0)
 }
-N_CH_IN = 63
+N_CH_IN = 63                 # base input: stored x (62) + station channel
+N_CH_IN_FCST = 63 + N_FCST   # with the HRRR forecast block appended
+
+
+def assemble_forecast(fc: dict[str, np.ndarray]) -> np.ndarray:
+    """(N_FCST, ny, nx) float32 block from hrrr.forecast_stack() output, normalised like the analysis channels."""
+    return np.stack([np.nan_to_num(fc[k]) / s for k, s in zip(FCST_KEYS, FCST_SCALE)]).astype(np.float32)
+
+
+def input_stack(sample: dict, st_now: np.ndarray | None = None, with_forecast: bool = False) -> np.ndarray:
+    """The model input for one stored sample: x (62) + painted station channel (+ the forecast block `xf`).
+    `st_now` overrides the stored reports (station dropout, live reports). Raises if the forecast block is wanted
+    but the sample was built without it (run scripts/13_add_hrrr_forecast.py)."""
+    x = sample["x"].astype(np.float32)
+    now = sample["st_now"] if st_now is None else st_now
+    parts = [x, paint_station_now(sample["st_ij"], now, x.shape[1:])[None]]
+    if with_forecast:
+        if "xf" not in sample:
+            raise KeyError("sample has no HRRR forecast block `xf`: run scripts/13_add_hrrr_forecast.py first")
+        parts.append(sample["xf"].astype(np.float32))
+    return np.concatenate(parts, 0)
+
+
+def wants_forecast(cfg: dict) -> bool:
+    return bool(cfg.get("channels", {}).get("hrrr_fcst", 0))
 
 
 def paint_station_now(st_ij: np.ndarray, st_now: np.ndarray, shape: tuple[int, int], radius_cells: int = 3) -> np.ndarray:

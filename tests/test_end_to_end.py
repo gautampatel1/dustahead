@@ -63,6 +63,7 @@ def test_finetune_ema_fold_and_policy(tmp_path):
     ft = copy.deepcopy(cfg)
     ft["train"].update(init_from=str(base / "best.pt"), lr=1e-4, ema_decay=0.9)
     ft["splits"]["val_fold"] = 1
+    ft["channels"]["hrrr_fcst"] = 6          # v10-style: six HRRR forecast channels appended, warm-started from base
     run_dir = train(ft, "gated_unet", tmp_path / "runs" / "ft", max_epochs=2, device="cpu")
     ck = torch.load(run_dir / "best.pt", weights_only=False)
     assert ck["ema"] is True and ck["init_from"] == str(base / "best.pt")
@@ -83,7 +84,10 @@ def test_finetune_ema_fold_and_policy(tmp_path):
     eng = DustAhead(run_dir / "best.pt", ft, device="cpu")
     s = load_sample(sorted((tmp_path / "samples" / "val").glob("*.npz"))[0])
     s["st_now"][0] = 1
-    out = eng.predict_array(s["x"].astype(np.float32), st_ij=s["st_ij"], st_now=s["st_now"])
+    import pytest
+    with pytest.raises(ValueError):          # a forecast-trained member needs the xf block
+        eng.predict_array(s["x"].astype(np.float32), st_ij=s["st_ij"], st_now=s["st_now"])
+    out = eng.predict_array(s["x"].astype(np.float32), st_ij=s["st_ij"], st_now=s["st_now"], xf=s["xf"])
     i, j = s["st_ij"][0]
     assert out["probs"][l15, i, j] == 1.0
     # offline ensemble + policy script runs on the saved predictions

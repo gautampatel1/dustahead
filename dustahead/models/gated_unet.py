@@ -161,12 +161,14 @@ def build_model(cfg: dict, name: str | None = None) -> nn.Module:
     m = cfg["model"]
     name = name or m["name"]
     n_leads = len(cfg["time"]["leads_min"])
+    # optional HRRR forecast block: appended LAST so a checkpoint without it is a channel prefix (warm start)
+    extra = ("hrrr_fcst",) if cfg.get("channels", {}).get("hrrr_fcst", 0) else ()
     if name == "gated_unet":
         ground = tuple(m.get("gate_channels", GROUND))               # which channel groups the gate sees
-        dynamic = tuple(g for g in DYNAMIC + GROUND if g not in ground)   # everything else goes to the U-Net
+        dynamic = tuple(g for g in DYNAMIC + GROUND if g not in ground) + extra   # everything else goes to the U-Net
         return GatedUNet(n_leads, m["base_channels"], m["depth"], m["gate_bias_init"], dynamic=dynamic, ground=ground)
     if name == "unet_all":
-        return PlainUNet(n_leads, m["base_channels"], m["depth"])
+        return PlainUNet(n_leads, m["base_channels"], m["depth"], groups=DYNAMIC + GROUND + extra)
     if name == "unet_dust_only":
         return PlainUNet(n_leads, m["base_channels"], m["depth"], groups=("satellite",))
     if name == "convlstm":

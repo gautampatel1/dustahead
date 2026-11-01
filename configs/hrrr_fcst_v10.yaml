@@ -1,0 +1,16 @@
+# Experiment config (v10): v8 + HRRR SHORT-RANGE FORECAST channels, warm-started from v8.
+# Why: onset POD is 0.16-0.25 and every tuning direction is closed (v5-v7, v9). The analysis fields say what the
+# wind is doing NOW; the forecast (run 2 h before t0, valid ~t0+1 h and ~t0+2 h: 10 m wind, gust, CAPE, composite
+# reflectivity) says whether an outflow is COMING - the physical driver of genesis. The run existed at t0 (rule 3).
+# Warm start: v8 weights fill the leading input slots of the first convolution, the six new channels start at zero
+# (train.init_from + load_partial), so epoch 0 reproduces v8 and training only has to learn how to use the forecast.
+# Needs samples with the `xf` block: python scripts/13_add_hrrr_forecast.py --workers 6
+channels:
+  hrrr_fcst: 6
+model:
+  gate_channels: [static, physics]
+train:
+  init_from: runs/gated_unet_v8/best.pt
+  lr: 0.0003
+  epochs: 20
+  patience: 6

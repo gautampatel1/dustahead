@@ -1,0 +1,7 @@
+# Experiment config (v10s): the same inputs as v10 (HRRR forecast block) trained FROM SCRATCH with the v8 recipe.
+# Why: the warm start (v10) may stay in v8's basin; this run says whether the forecast channels change the solution
+# when the model is free to use them from the start.
+channels:
+  hrrr_fcst: 6
+model:
+  gate_channels: [static, physics]
