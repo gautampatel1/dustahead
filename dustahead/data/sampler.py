@@ -61,16 +61,24 @@ def assemble_forecast(fc: dict[str, np.ndarray]) -> np.ndarray:
 
 def input_stack(sample: dict, st_now: np.ndarray | None = None, with_forecast: bool = False) -> np.ndarray:
     """The model input for one stored sample: x (62) + painted station channel (+ the forecast block `xf`).
-    `st_now` overrides the stored reports (station dropout, live reports). Raises if the forecast block is wanted
-    but the sample was built without it (run scripts/13_add_hrrr_forecast.py)."""
+    `st_now` overrides the stored reports (station dropout, live reports). A sample built without the forecast
+    block (scripts/13_add_hrrr_forecast.py not run on it) gets zeros there, and a warning is printed once."""
     x = sample["x"].astype(np.float32)
     now = sample["st_now"] if st_now is None else st_now
     parts = [x, paint_station_now(sample["st_ij"], now, x.shape[1:])[None]]
     if with_forecast:
-        if "xf" not in sample:
-            raise KeyError("sample has no HRRR forecast block `xf`: run scripts/13_add_hrrr_forecast.py first")
-        parts.append(sample["xf"].astype(np.float32))
+        if "xf" in sample:
+            parts.append(sample["xf"].astype(np.float32))
+        else:
+            global _WARNED_NO_XF
+            if not _WARNED_NO_XF:
+                print("[sampler] sample without HRRR forecast block `xf`: zeros used (run scripts/13_add_hrrr_forecast.py)", flush=True)
+                _WARNED_NO_XF = True
+            parts.append(np.zeros((N_FCST,) + x.shape[1:], np.float32))
     return np.concatenate(parts, 0)
+
+
+_WARNED_NO_XF = False
 
 
 def wants_forecast(cfg: dict) -> bool:

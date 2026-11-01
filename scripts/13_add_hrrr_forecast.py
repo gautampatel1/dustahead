@@ -40,19 +40,19 @@ def _t0_of(path: Path):
     with np.load(path, allow_pickle=False) as z:
         if "xf" in z.files:
             return None
-        return pd.Timestamp(z["t0"]).to_pydatetime()
+        return pd.Timestamp(z["t0"][()]).to_pydatetime()       # 0-d datetime64 array
 
 
 def prefetch_one(args):
-    """(run_iso, fxx, field) -> cache that one regridded field."""
+    """(run_iso, fxx, fields) -> cache those regridded fields of one GRIB file in a single Herbie call."""
     import datetime as dt
     from dustahead.data import hrrr
-    run_iso, fxx, field = args
+    run_iso, fxx, fields = args
     try:
-        hrrr.field_on_grid(dt.datetime.fromisoformat(run_iso), field, _G["grid"], fxx=fxx)
+        hrrr.fields_on_grid(dt.datetime.fromisoformat(run_iso), tuple(fields), _G["grid"], fxx=fxx)
         return "ok"
     except Exception as e:  # noqa: BLE001
-        return f"{run_iso} f{fxx:02d} {field}: {type(e).__name__}: {str(e)[:100]}"
+        return f"{run_iso} f{fxx:02d} {fields}: {type(e).__name__}: {str(e)[:100]}"
 
 
 def augment_one(path_str):
@@ -65,7 +65,7 @@ def augment_one(path_str):
             if "xf" in z.files:
                 return path.name, "skip"
             s = {k: z[k] for k in z.files}
-        t0 = pd.Timestamp(s["t0"]).to_pydatetime()
+        t0 = pd.Timestamp(s["t0"][()]).to_pydatetime()
         fc = hrrr.forecast_stack(t0, _G["grid"])
         n_missing = int(sum(np.isnan(v).all() for v in fc.values()))
         s["xf"] = assemble_forecast(fc).astype(np.float16)
@@ -100,13 +100,11 @@ def main():
     if a.limit:
         todo = todo[: a.limit]
     runs = set()
-    import datetime as dt
     for _, t0 in todo:
         run, fxx = hrrr.forecast_runs(t0)
-        for field in hrrr.FORECAST_FIELDS:
-            runs.add((run.isoformat(), fxx, field))
-        runs.add((run.isoformat(), fxx + 1, "gust"))
-    print(f"{len(todo)} samples need xf; {len(runs)} unique (run, fxx, field) items to fetch; workers {a.workers}", flush=True)
+        runs.add((run.isoformat(), fxx, hrrr.FORECAST_FIELDS))
+        runs.add((run.isoformat(), fxx + 1, ("gust",)))
+    print(f"{len(todo)} samples need xf; {len(runs)} unique (run, fxx) GRIB files to read; workers {a.workers}", flush=True)
     if a.dry_run or not todo:
         return
 

@@ -43,6 +43,10 @@ SEARCH = {
     "refc": ":REFC:entire atmosphere:",      # composite reflectivity (dBZ): the forecast storm itself
 }
 ANALYSIS_FIELDS = ("u10", "v10", "gust", "cape", "rh2m", "soilm", "t2m", "d2m")
+# cfgrib variable names each field may come back as (Herbie/cfgrib naming differs from the GRIB inventory)
+VARNAMES = {"u10": ("u10", "u"), "v10": ("v10", "v"), "gust": ("gust", "i10fg", "fg10"), "cape": ("cape",),
+            "refc": ("refc",), "rh2m": ("r2", "r"), "t2m": ("t2m", "t"), "d2m": ("d2m", "dpt"), "soilm": ("mstav",),
+            "vis": ("vis",), "apcp6": ("tp", "apcp")}
 _REGRID: dict = {}
 _CACHE: Path | None = None
 
@@ -115,6 +119,52 @@ def forecast_stack(t0: dt.datetime, grid: Grid) -> dict[str, np.ndarray]:
                 if back == 1:
                     print(f"[hrrr] forecast {field} for {t0:%Y-%m-%d %H:%M}Z missing ({type(e).__name__}); NaN")
         out[key] = arr if arr is not None else np.full(grid.shape, np.nan, np.float32)
+    return out
+
+
+def fields_on_grid(run: dt.datetime, fields: tuple[str, ...], grid: Grid, fxx: int = 0) -> dict[str, np.ndarray]:
+    """Several fields of ONE GRIB file in one Herbie call (one .idx read, one byte-range request per message),
+    each cached exactly as field_on_grid would. Fields already cached are not fetched again."""
+    import os
+    run = run.replace(minute=0, second=0, microsecond=0)
+    out, todo = {}, []
+    for f in fields:
+        cache = _CACHE / f"{run:%Y%m%dT%H}_f{fxx:02d}_{f}.npy" if _CACHE else None
+        if cache and cache.exists():
+            out[f] = np.load(cache)
+        else:
+            todo.append(f)
+    if not todo:
+        return out
+    import tempfile
+    from herbie import Herbie
+    save_dir = Path(os.environ.get("DUSTAHEAD_TMP", tempfile.gettempdir())) / "dustahead_raw" / "herbie"
+    save_dir.mkdir(parents=True, exist_ok=True)
+    H = Herbie(run.replace(tzinfo=None), model="hrrr", product="sfc", fxx=fxx, verbose=False, save_dir=save_dir)
+    dss = H.xarray("(" + "|".join(SEARCH[f] for f in todo) + ")", remove_grib=True)
+    dss = dss if isinstance(dss, list) else [dss]
+    key = ("hrrr", grid.shape)
+    for ds in dss:
+        lon = ds["longitude"].values
+        lon = np.where(lon > 180, lon - 360, lon)
+        with keyed_lock("hrrr_regridder"):
+            if key not in _REGRID:
+                _REGRID[key] = NearestRegridder(lon, ds["latitude"].values, grid, max_km=6.0)
+        for var in ds.data_vars:
+            name = next((f for f in todo if var.lower() in VARNAMES.get(f, (f,))), None)   # GRIB variable -> field
+            if name is None:
+                continue
+            arr = _REGRID[key](np.squeeze(ds[var].values))
+            out[name] = arr
+            if _CACHE:
+                cache = _CACHE / f"{run:%Y%m%dT%H}_f{fxx:02d}_{name}.npy"
+                tmp = cache.with_suffix(f".{os.getpid()}_{id(arr)}.tmp.npy")
+                np.save(tmp, arr)
+                os.replace(tmp, cache)
+    missing = [f for f in todo if f not in out]
+    if missing:          # fall back to one call per field (the combined regex matched nothing for them)
+        for f in missing:
+            out[f] = field_on_grid(run, f, grid, fxx)
     return out
 
 
