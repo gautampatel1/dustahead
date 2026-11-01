@@ -254,3 +254,32 @@ already provides (`product.genesis_thresholds`); the table above is the "single 
 
 **Closed directions after today:** fine-tuning/EMA (v9), persistence floor. **Open:** HRRR short-range forecast
 fields as inputs, longer satellite history, self-supervised pre-training of the sky branch — all aimed at onset POD.
+
+## 1 Nov — v10: HRRR short-range FORECAST channels (`configs/hrrr_fcst_v10*.yaml`, `scripts/13_add_hrrr_forecast.py`)
+
+Six channels appended to every existing sample in place (no other data refetched): from the HRRR run initialised
+2 h before the hour of t0 (complete on AWS by t0), 10 m u/v, gust, CAPE and composite reflectivity valid at the first
+full hour after t0, and gust one hour later. The forecast outflow is the physical driver of onset; the analysis only
+says what the wind does now. v10 = warm start from v8 (new input weights zero, so epoch 0 reproduces v8; lr 3e-4);
+v10s = same inputs from scratch with the v8 recipe.
+
+| model (val, best threshold; genesis at 0.5, raw) | +15 | +30 | +60 | genesis CSI +15 / +30 / +60 | genesis POD +15 / +30 / +60 | FAR | p vs persist. +30 (Holm) |
+|---|---|---|---|---|---|---|---|
+| gated_unet v8 | 0.508 | 0.383 | 0.210 | 0.050 / 0.060 / 0.093 | 0.30 / 0.35 / 0.42 | 0.94 / 0.93 / 0.89 | 0.056 |
+| gated_unet v10 (warm, best = epoch 0) | 0.505 | 0.359 | 0.217 | 0.040 / 0.051 / 0.081 | **0.36 / 0.42 / 0.49** | 0.96 / 0.95 / 0.91 | 0.056 |
+| gated_unet v10s (scratch, best = epoch 1) | 0.500 | **0.402** | 0.217 | 0.036 / 0.057 / 0.077 | 0.23 / 0.36 / 0.41 | 0.96 / 0.94 / 0.91 | **< 0.004** |
+| max(unet_all v4, gated v4, gated v10s) | 0.515 | **0.409** | 0.255 | (at the overall threshold) 0.019 / 0.057 / 0.137 | | | |
+| max(unet_all v4, gated v4, gated v8) — product | 0.513 | 0.399 | 0.246 | 0 / 0.032 / 0.158 | | | |
+
+Reading. The forecast block does what it was expected to do physically — the warm start raises onset POD by
+0.06–0.07 at every lead — but buys it with the same proportion of extra false alarms, so onset CSI is unchanged
+within the intervals (every v10 interval overlaps v8's). Trained from scratch the extra channels go into
+all-station skill instead: v10s has the best +30 CSI of any single model (0.402 vs 0.383) and the strongest
+single-fold onset significance (paired p < 0.001 at +30, Holm < 0.004), with onset CSI level with v8. Both runs
+early-stop by epoch 1–2 like every version before them: with ~130 onset positives in the training half the models
+saturate within two passes over the data whatever the inputs. **The bottleneck is onset examples, not information.**
+
+Decisions: paper model stays v8 (same onset skill, simpler input set, interpretable gate); v10s is reported as the
+"forecast inputs" ablation (+0.02 CSI at +30, no onset gain). The product ensemble with v10s instead of v8 is
++0.01 at +30/+60 on validation — within noise; `product.checkpoints` unchanged unless the team prefers the
+forecast-aware member for the live demo (it needs the HRRR forecast fetch at run time, ~10 s extra per cycle).
