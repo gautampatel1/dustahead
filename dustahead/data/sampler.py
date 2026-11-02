@@ -207,6 +207,21 @@ def load_sample(path: str | Path) -> dict:
         return {k: z[k] for k in z.files}
 
 
+def onset_times(event, cfg: dict, step_min: int = 5) -> list[dt.datetime]:
+    """EXTRA forecast times at `step_min` cadence through the onset window only (first-warning - hours_before ...
+    first warning + 1 h), skipping the times sample_times() already covers. GOES CONUS scans every 5 min, so the
+    in-between frames are real new observations; the labels are re-derived from the 5-min station reports.
+    Why: genesis positives (the primary metric) live in this window and are the scarcest thing in the data;
+    doubling the cadence here roughly doubles them (neighbouring samples are correlated, so less than 2x in effect)."""
+    T = cfg["time"]
+    base = set(sample_times(event, cfg))
+    start = pd.Timestamp(event.t_start).floor(f"{step_min}min") - pd.Timedelta(hours=T["hours_before"])
+    end = pd.Timestamp(event.t_start).ceil(f"{step_min}min") + pd.Timedelta(hours=1)
+    n = int((end - start) / pd.Timedelta(minutes=step_min)) + 1
+    out = [(start + pd.Timedelta(minutes=step_min * k)).to_pydatetime() for k in range(n)]
+    return [t for t in out if t not in base]
+
+
 def sample_times(event, cfg: dict) -> list[dt.datetime]:
     """Forecast times every step_min from (first warning - hours_before) to (last expiry + hours_after),
     capped at samples_per_event. Genesis cases live in the hours before the first warning."""

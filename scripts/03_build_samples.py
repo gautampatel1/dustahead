@@ -1,6 +1,8 @@
 """Step 3: labels + samples for every event in data/labels/events.csv.
 
     python -u scripts/03_build_samples.py [--limit 2] [--only dust|nodust] [--workers 6] [--no-adp] [--event ID] [--max-samples N]
+    python -u scripts/03_build_samples.py --onset-step 5 --only dust      # EXTRA 5-min samples through each onset window
+                                                                           # (training events only: never the val half or test)
 
 Per event: fetch 5-min ASOS reports, DS.W polygons and Storm Events, build station labels, then for
 each forecast time t0 (every 10 min from 3 h before the first warning to 2 h after the last expiry)
@@ -112,7 +114,8 @@ def build_one(args):
 
 def main():
     from dustahead import load_config
-    from dustahead.data.sampler import sample_times
+    from dustahead.data.sampler import onset_times, sample_times
+    from dustahead.train.dataset import _event_hash
     from dustahead.events.stations import fetch_asos, fetch_station_table, label_reports
     from dustahead.events.storm_events import fetch_dust_storm_events
     from dustahead.events.warnings import fetch_polygon
@@ -127,6 +130,8 @@ def main():
     ap.add_argument("--max-samples", type=int, default=None, help="per event, for quick tests")
     ap.add_argument("--null-ratio", type=float, default=1.0, help="null days per dust event (per year), sampled with seed 0")
     ap.add_argument("--config", default=None)
+    ap.add_argument("--onset-step", type=int, default=None,
+                    help="also build samples every N min through the onset window (sampler.onset_times); TRAINING events only")
     a = ap.parse_args()
 
     cfg = load_config(a.config)
@@ -186,6 +191,15 @@ def main():
             print(f"[{ev.event_id}] {ev.kind}: {len(labels)} reports from {labels.station.nunique()} stations, "
                   f"{int(labels.label.sum())} dust-positive, {int(labels.severe.sum())} severe", flush=True)
             times = sample_times(ev, cfg)[: a.max_samples]
+            if a.onset_step:
+                # onset-window densification is a TRAINING-data change: skip the test year and the 2025 validation half
+                frac = cfg["splits"].get("val_from_2025")
+                fold = int(cfg["splits"].get("val_fold", 0))
+                if split == "test":
+                    continue
+                if split == "val" and frac and ((_event_hash(ev.event_id) < frac) if fold == 0 else (_event_hash(ev.event_id) >= frac)):
+                    continue
+                times = onset_times(ev, cfg, a.onset_step)[: a.max_samples]
             todo = [t0 for t0 in times if not (Path(cfg["paths"]["samples"]) / split / f"{ev.event_id}_{t0:%Y%m%dT%H%M}.npz").exists()]
             t_ev = time.time()
             if todo:
