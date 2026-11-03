@@ -283,3 +283,36 @@ Decisions: paper model stays v8 (same onset skill, simpler input set, interpreta
 "forecast inputs" ablation (+0.02 CSI at +30, no onset gain). The product ensemble with v10s instead of v8 is
 +0.01 at +30/+60 on validation — within noise; `product.checkpoints` unchanged unless the team prefers the
 forecast-aware member for the live demo (it needs the HRRR forecast fetch at run time, ~10 s extra per cycle).
+
+## 2–3 Nov — v11: onset-window densification (5-minute sampling; `03_build_samples.py --onset-step 5`)
+
+Every TRAINING dust event (2018–24 and the 2025 training half; never the validation half, never 2026) got extra
+samples every 5 min from 3 h before its first warning to 1 h after it — the window where genesis positives live.
+GOES scans every 5 min, so the in-between frames are new observations; labels come from the 5-min station
+reports. +5,008 samples (+23 %), +229 / 226 / 297 positive station labels at +15 / +30 / +60 (+20 %), each with the
+HRRR forecast block. Validation is the same 60 events / 202k station-times as every table above.
+
+| model | best epoch | +15 | +30 | +60 | genesis CSI at 0.5, calibrated (raw) | genesis POD raw | p vs persist. +30 (Holm) |
+|---|---|---|---|---|---|---|---|
+| gated_unet v8 (10-min data) | 1 | 0.508 | 0.383 | 0.210 | 0.056 / 0.076 / 0.096 (0.050 / 0.060 / 0.093) | 0.30 / 0.35 / 0.42 | 0.014 (0.056) |
+| gated_unet v11 = v8 recipe, densified | **13** | 0.493 | 0.388 | 0.209 | 0.049 / 0.067 / **0.107 [0.04, 0.17]** (0.054 / 0.067 / 0.094) | 0.21 / 0.28 / 0.42 | 0.014 (0.056) |
+| gated_unet v11f = + HRRR forecast channels | 3 | 0.483 | 0.337 | 0.222 | **0.075 / 0.077 / 0.099** (0.059 / 0.063 / 0.081) | **0.30 / 0.51 / 0.62** | **0.006 (0.024)** |
+
+Ensembles (calibrated members, best overall threshold): max(unet_all v4, gated v4, v11) 0.490 / 0.390 / 0.235;
+with v11f 0.495 / 0.398 / 0.247 — level with the product's 0.513 / 0.399 / 0.246.
+
+Reading.
+- **The training curve changed.** Every version before v11 peaked at epoch 1–2 and overfit from there; v11 kept
+  improving until epoch 13 and stopped at 21. The models were starved of onset examples — a 20 % increase in
+  positives bought twelve useful epochs. That is the clearest evidence so far about what limits this problem.
+- **Onset skill moved, all-station skill did not.** v11's calibrated onset CSI at +60 (0.107) is the best single-model
+  value posted; v11f, which adds the forecast channels, is the first single-fold model with a Holm-corrected
+  p below 0.05 (0.024) and detects 62 % of +60 onsets (v8: 42 %) at the same false-alarm ratio. All-station CSI
+  stays within ±0.02 of v8 at every lead, because the extra samples are all pre-onset and add nothing to the
+  persistence-type cases that dominate that score.
+- **Compounding is partial.** v11f's gains over v11 are at the onset stratum only; its +30 all-station CSI drops to
+  0.337, and it again peaks early (epoch 3). More onset examples and more input information help the same cases.
+
+Decisions: product unchanged (no ensemble beats it). Paper: v8 remains the clean reference; v11 / v11f go in as the
+"data-limited" evidence (training-curve figure + the POD gain). Next data levers, in order: road-weather (RWIS) and
+PM10 ground truth through Synoptic Data (needs an API token), then self-supervised pre-training of the sky branch.
