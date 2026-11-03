@@ -105,6 +105,12 @@ def has_code(wx: str, codes) -> bool:
     return any(c in expanded or c in toks for c in codes)
 
 
+def _to_utc(col: pd.Series) -> pd.Series:
+    """Timestamps as tz-aware UTC whether the source was naive (assumed UTC) or aware."""
+    col = pd.to_datetime(col)
+    return col.dt.tz_localize("UTC") if col.dt.tz is None else col.dt.tz_convert("UTC")
+
+
 def warning_flags(obs: pd.DataFrame, warnings: pd.DataFrame, stations: pd.DataFrame, cfg: dict,
                   polygons: dict | None = None, storm_events: pd.DataFrame | None = None) -> pd.DataFrame:
     """The warning cross-check shared by every label source: adds in_warning_strict (polygon hit), in_warning
@@ -115,6 +121,13 @@ def warning_flags(obs: pd.DataFrame, warnings: pd.DataFrame, stations: pd.DataFr
     L = cfg["label"]
     pad = pd.Timedelta(minutes=L["warning_pad_min"])
     obs = obs.copy()
+    obs["valid"] = _to_utc(obs.valid)
+    warnings = warnings.copy()
+    if len(warnings):
+        warnings["issue"], warnings["expire"] = _to_utc(warnings.issue), _to_utc(warnings.expire)
+    if storm_events is not None and len(storm_events):
+        storm_events = storm_events.copy()
+        storm_events["begin"], storm_events["end"] = _to_utc(storm_events.begin), _to_utc(storm_events["end"])
     ds = warnings[warnings.phenomena == "DS"] if not warnings.empty else warnings
     st = stations.set_index("sid")
     in_w = np.zeros(len(obs), bool)          # polygon hit (strict)

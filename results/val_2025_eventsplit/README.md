@@ -336,3 +336,8 @@ the persistence-type signal, which dominates the loss. Reconstruction pre-traini
 the rare precursor patterns. Follow-up queued as v12b (lr 1e-4, EMA 0.999) to test whether a gentler fine-tune keeps
 the onset sensitivity; if that is also negative, pre-training is closed in this form (a contrastive or
 future-frame objective would be the next thing to try, not more of the same).
+
+v12b (same pre-trained U-Net, lr 1e-4 + EMA, best epoch 9): 0.385 / 0.304 / 0.184, onset CSI 0.000 / 0.014 / 0.022 —
+worse everywhere. **Masked-reconstruction pre-training is closed**: it hands the supervised stage features tuned for
+texture, which it then either overwrites (v12) or cannot escape (v12b). A pre-text task tied to motion (future-frame
+prediction) or to contrast between pre-onset and quiet skies would be the next thing to try, not more of this one.

@@ -30,6 +30,11 @@ from dustahead.keep_awake import keep_awake  # noqa: E402
 keep_awake(True)
 
 SRC = {"asos": 0, "rwis": 1, "vis_other": 2, "pm10": 3}
+
+
+def _utc(t) -> pd.Timestamp:
+    t = pd.Timestamp(t)
+    return t.tz_localize("UTC") if t.tzinfo is None else t.tz_convert("UTC")
 _G = {}
 
 
@@ -138,9 +143,10 @@ def main():
                 raw = L / "synoptic" / f"{ev.event_id}.csv"
                 if raw.exists():
                     ts = pd.read_csv(raw, parse_dates=["valid"])
+                    ts["valid"] = ts.valid.map(_utc)
                 else:
                     try:
-                        ts = timeseries(list(ext.sid), pd.Timestamp(t_lo, tz="UTC"), pd.Timestamp(t_hi, tz="UTC"))
+                        ts = timeseries(list(ext.sid), _utc(t_lo), _utc(t_hi))
                     except Exception as e:  # noqa: BLE001
                         print(f"[{ev.event_id}] synoptic fetch failed: {type(e).__name__}: {str(e)[:120]}", flush=True)
                         continue
@@ -165,6 +171,7 @@ def main():
                 lab_ext = label_extended(ts, ext, ds_w, cfg, polys, storm_events[ev.year])
                 old = L / "events" / f"{ev.event_id}.csv"
                 lab_asos = pd.read_csv(old, parse_dates=["valid"])
+                lab_asos["valid"] = lab_asos.valid.map(_utc)
                 lab_asos["source"] = "asos"
                 lab_asos["tol_min"] = 5
                 keep = ["station", "valid", "label", "severe", "source", "tol_min"]
