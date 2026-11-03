@@ -126,3 +126,27 @@ def test_metrics():
     a = np.zeros((20, 20)); a[5:10, 5:10] = 1
     assert fss_np(a, a) == 1.0 and fss_np(a, np.roll(a, 8, 0)) < 0.5
     assert holm({"a": 0.01, "b": 0.04, "c": 0.03}) == {"a": 0.03, "c": 0.06, "b": 0.06}
+
+
+def test_extended_label_rule():
+    """Synoptic rows: RWIS visibility needs <= 1 mi, no measured rain and a warning; PM10 needs >= threshold and a warning."""
+    import pandas as pd
+    from dustahead import load_config
+    from dustahead.events.synoptic import label_extended
+    cfg = load_config()
+    t = pd.Timestamp("2025-08-25T23:00Z")
+    st = pd.DataFrame(dict(sid=["RW1", "PM1"], lon=[-111.5, -111.6], lat=[32.9, 33.0], county=["Pinal", "Pinal"], source=["rwis", "pm10"]))
+    warn = pd.DataFrame(dict(phenomena=["DS"], issue=[t - pd.Timedelta(hours=1)], expire=[t + pd.Timedelta(hours=1)],
+                             wfo=["PSR"], year=[2025], eventid=[1], locations=["Pinal; Maricopa"]))
+    ts = pd.DataFrame([("RW1", t, "visibility", 0.5), ("RW1", t, "precip_accum_one_hour", 0.0),
+                       ("RW1", t + pd.Timedelta(minutes=5), "visibility", 0.5), ("RW1", t + pd.Timedelta(minutes=5), "precip_accum_one_hour", 0.2),
+                       ("RW1", t + pd.Timedelta(hours=3), "visibility", 0.2),          # outside the warning
+                       ("PM1", t, "PM_10_concentration", 1500.0), ("PM1", t + pd.Timedelta(hours=1), "PM_10_concentration", 40.0)],
+                      columns=["stid", "valid", "variable", "value"])
+    lab = label_extended(ts, st, warn, cfg)
+    r = lab.set_index(["station", "valid"])
+    assert r.loc[("RW1", t), "label"] == 1 and r.loc[("RW1", t), "severe"] == 0
+    assert r.loc[("RW1", t + pd.Timedelta(minutes=5)), "label"] == 0        # rain measured -> not dust
+    assert r.loc[("RW1", t + pd.Timedelta(hours=3)), "label"] == 0          # no warning
+    assert r.loc[("PM1", t), "label"] == 1 and r.loc[("PM1", t), "severe"] == 1 and r.loc[("PM1", t), "tol_min"] == 30
+    assert r.loc[("PM1", t + pd.Timedelta(hours=1)), "label"] == 0

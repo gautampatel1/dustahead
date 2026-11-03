@@ -39,6 +39,8 @@ label:
   asos_report_types: [1, 2, 3]   # 5-minute, routine hourly, specials
   station_radius_km: 12  # pixels within this radius of a labelled station share its label
   genesis_radius_km: 50  # "genesis" case = no dust within 50 km at t0
+  pm10_ugm3: 250         # extended label (events/synoptic.py): hourly PM10 >= this inside a warning window = dust
+  pm10_severe_ugm3: 1000 # ... and severe above this (haboob peaks read 1,000-5,000 ug/m3)
 
 splits:
   train: [2018, 2019, 2020, 2021, 2022, 2023, 2024]   # 2018-22 from GOES-16 (East), same sector; no ADP before 2020

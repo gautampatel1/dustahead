@@ -19,7 +19,7 @@ from torch.utils.data import Dataset
 
 from ..data.sampler import genesis_per_station, input_stack, load_sample, wants_forecast
 
-MAX_STATIONS = 96
+MAX_STATIONS = 256      # ASOS (~85) + extended Synoptic stations (road-weather, PM10, other visibility)
 
 
 def _event_hash(event_id: str) -> float:

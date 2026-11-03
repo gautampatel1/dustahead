@@ -24,6 +24,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import requests
 
@@ -58,6 +59,7 @@ def station_inventory(bbox: tuple[float, float, float, float], tok: str | None =
         por = s.get("PERIOD_OF_RECORD", {}) or {}
         rows.append(dict(stid=s["STID"], name=s.get("NAME"), network=s.get("SHORTNAME") or s.get("MNET_ID"),
                          lon=float(s["LONGITUDE"]), lat=float(s["LATITUDE"]), elevation=s.get("ELEVATION"),
+                         county=s.get("COUNTY"), state=s.get("STATE"),
                          por_start=por.get("start"), por_end=por.get("end"),
                          has_vis="visibility" in sv, has_pm10="PM_10_concentration" in sv,
                          has_precip="precip_accum_one_hour" in sv, has_wind="wind_speed" in sv))
@@ -93,3 +95,65 @@ def timeseries(stids: list[str], start: pd.Timestamp, end: pd.Timestamp, variabl
     if len(df):
         df["valid"] = pd.to_datetime(df.valid, utc=True)
     return df
+
+
+# ---- extended station table and label rule ----------------------------------------------------------------------
+def extended_station_table(inventory: pd.DataFrame, asos: pd.DataFrame, grid, i10_km: float | None = None) -> pd.DataFrame:
+    """Non-ASOS stations that can label dust, in the stations.csv layout plus `source`:
+      rwis      road-weather visibility (AZDOT / NMDOT / CALTRANS)
+      vis_other any other visibility sensor (WSMR, YPG, CWOP, ...)
+      pm10      PM10 monitors (AirNow, NMAQ)
+    A station already in the ASOS table (STID = 'K' + sid, or the same sid) is skipped - ASOS keeps precedence."""
+    asos_ids = set(asos.sid) | {"K" + s for s in asos.sid}
+    rows = []
+    for r in inventory.itertuples():
+        if r.stid in asos_ids or not grid.inside(r.lon, r.lat):
+            continue
+        if i10_km is not None and getattr(r, "km_to_i10", 0) > i10_km:
+            continue
+        if r.has_pm10:
+            src = "pm10"
+        elif r.has_vis:
+            src = "rwis" if str(r.network).upper() in ("AZDOT", "NMDOT", "CALTRANS", "TXDOT") else "vis_other"
+        else:
+            continue
+        rows.append(dict(sid=r.stid, name=r.name, lon=r.lon, lat=r.lat, network=r.network, wfo=None,
+                         ugc_county=None, county=getattr(r, "county", None), elevation=r.elevation, source=src))
+    df = pd.DataFrame(rows).drop_duplicates("sid").reset_index(drop=True)
+    if len(df):
+        df["i"], df["j"] = grid.to_ij(df.lon.values, df.lat.values)
+    df["i10_core"] = False
+    return df
+
+
+def label_extended(ts: pd.DataFrame, stations_ext: pd.DataFrame, warnings: pd.DataFrame, cfg: dict,
+                   polygons: dict | None = None, storm_events: pd.DataFrame | None = None) -> pd.DataFrame:
+    """Apply the extended label rule to a Synoptic time series (long format from timeseries()).
+    Returns the same columns station_targets() needs (station, valid, label, severe, tol_min) plus source and the
+    warning flags, so the rows can be concatenated with the ASOS labels of the same event."""
+    from .stations import warning_flags
+    L = cfg["label"]
+    if ts.empty:
+        return pd.DataFrame(columns=["station", "valid", "label", "severe", "source", "tol_min"])
+    wide = ts.pivot_table(index=["stid", "valid"], columns="variable", values="value", aggfunc="first").reset_index()
+    wide = wide.rename(columns={"stid": "station", "PM_10_concentration": "pm10", "precip_accum_one_hour": "precip1h"})
+    for c in ("visibility", "pm10", "precip1h"):
+        if c not in wide:
+            wide[c] = float("nan")
+    src = stations_ext.set_index("sid").source
+    wide = wide[wide.station.isin(src.index)]
+    wide["source"] = wide.station.map(src)
+    wide = warning_flags(wide, warnings, stations_ext, cfg, polygons, storm_events)
+    confirmed = wide.in_warning | wide.in_storm_event
+    pm_thr, pm_sev = float(L.get("pm10_ugm3", 250)), float(L.get("pm10_severe_ugm3", 1000))
+    vis_ok = wide.visibility <= L["vis_max_mi"]
+    no_rain = ~(wide.precip1h > 0)                       # RWIS has no present-weather code: exclude measured rain
+    is_pm = wide.source == "pm10"
+    lab_vis = vis_ok & no_rain & confirmed & ~is_pm
+    lab_pm = (wide.pm10 >= pm_thr) & confirmed & is_pm
+    wide["label"] = (lab_vis | lab_pm).astype(int)
+    wide["severe"] = ((lab_vis & (wide.visibility <= L["severe_vis_mi"])) | (lab_pm & (wide.pm10 >= pm_sev))).astype(int)
+    wide["tol_min"] = np.where(is_pm, 30, 5)             # hourly PM10 value stands for its hour
+    # a visibility station with no visibility value at that time, or a PM10 station with no PM10, is "no report"
+    has_obs = np.where(is_pm, wide.pm10.notna(), wide.visibility.notna())
+    return wide[has_obs].reset_index(drop=True)

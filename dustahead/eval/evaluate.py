@@ -30,7 +30,7 @@ def _station_values(p, st_ij, st_y):
 def collect(model, ds: DustDataset, device, baselines=(), with_forecast: bool = False):
     """Returns per-model station probabilities (N, L), labels (N, L), genesis flags, event ids, FSS lists."""
     out = {name: [] for name in ("model",) + tuple(baselines)}
-    ys, gen, ev, fss_pix = [], [], [], {name: [] for name in out}
+    ys, gen, ev, src, fss_pix = [], [], [], [], {name: [] for name in out}
     for k in range(len(ds)):
         s = load_sample(ds.files[k])
         x = input_stack(s, None, with_forecast)
@@ -45,8 +45,9 @@ def collect(model, ds: DustDataset, device, baselines=(), with_forecast: bool = 
         ys.append(sy)
         gen.append(genesis_per_station(s, radius_cells=12))      # 50 km / 4 km
         ev.append(np.full(len(sy), str(ds.files[k].stem).rsplit("_", 1)[0]))
+        src.append(s["st_src"].astype(int) if "st_src" in s else np.zeros(len(sy), int))   # 0 = ASOS (see 16_extend_labels)
     return ({n: np.concatenate(v) for n, v in out.items()}, np.concatenate(ys), np.concatenate(gen),
-            np.concatenate(ev), {n: np.nanmean(v, 0).tolist() for n, v in fss_pix.items()})
+            np.concatenate(ev), {n: np.nanmean(v, 0).tolist() for n, v in fss_pix.items()}, np.concatenate(src))
 
 
 def run(ckpt: str | Path, cfg: dict, split: str = "test", baselines=("persistence", "advected", "hrrr_rule"),
@@ -62,7 +63,8 @@ def run(ckpt: str | Path, cfg: dict, split: str = "test", baselines=("persistenc
     if calibrate_on and calibrate_on != split:
         pv, yv, *_ = collect(model, DustDataset(cfg["paths"]["samples"], calibrate_on, cfg=cfg), device, with_forecast=wf)
         T, t_note = temperature_scale(pv["model"].ravel(), yv.ravel()), f"fitted on {calibrate_on}"
-    preds, y, gen, ev, fss_pix = collect(model, DustDataset(cfg["paths"]["samples"], split, cfg=cfg), device, baselines, with_forecast=wf)
+    preds, y, gen, ev, fss_pix, src = collect(model, DustDataset(cfg["paths"]["samples"], split, cfg=cfg), device, baselines, with_forecast=wf)
+    asos = src == 0
     if calibrate_on == split:            # two-parameter Platt fit on the evaluated split itself; say so in the report
         a, b = platt_scale(preds["model"].ravel(), y.ravel())
         T, t_note = 1.0 / max(a, 1e-3), f"Platt a={a:.3f} b={b:.3f} fitted in-sample on {split} (2 parameters)"
@@ -82,7 +84,8 @@ def run(ckpt: str | Path, cfg: dict, split: str = "test", baselines=("persistenc
         preds["model+persistence"] = pp
         fss_pix["model+persistence"] = fss_pix["model"]      # pixel FSS is not recomputed for the policy variant
 
-    report = dict(split=split, checkpoint=str(ckpt), temperature=T, temperature_note=t_note, leads=leads, models={})
+    report = dict(split=split, checkpoint=str(ckpt), temperature=T, temperature_note=t_note, leads=leads,
+                  n_stations=int(len(y)), n_asos=int(asos.sum()), extended_labels=bool(not asos.all()), models={})
     for name, p in preds.items():
         r = dict(fss_pixels=fss_pix[name])
         for l, lead in enumerate(leads):
@@ -92,6 +95,16 @@ def run(ckpt: str | Path, cfg: dict, split: str = "test", baselines=("persistenc
                 key=lambda z: (-1 if np.isnan(z[0]) else z[0]))
             r[f"genesis_{lead}"] = station_scores(p[gen, l], y[gen, l], thr)
             r[f"genesis_{lead}"]["csi_ci"] = event_bootstrap(p[gen, l], y[gen, l], ev[gen], "csi", B, thr)
+            if not asos.all():       # extended benchmark: also the ASOS-only view, comparable with earlier tables
+                r[f"asos_{lead}"] = station_scores(p[asos, l], y[asos, l], thr)
+                r[f"asos_{lead}"]["csi_best"] = max((station_scores(p[asos, l], y[asos, l], t)["csi"] for t in np.arange(0.05, 0.96, 0.05)),
+                                                    key=lambda z: -1 if np.isnan(z) else z)
+                ga = gen & asos
+                r[f"asos_genesis_{lead}"] = station_scores(p[ga, l], y[ga, l], thr)
+                for name_src, code in (("rwis", 1), ("vis_other", 2), ("pm10", 3)):
+                    m = src == code
+                    if m.any():
+                        r[f"{name_src}_{lead}"] = station_scores(p[m, l], y[m, l], thr)
         report["models"][name] = r
     pv = {}
     for name in baselines:
@@ -100,7 +113,7 @@ def run(ckpt: str | Path, cfg: dict, split: str = "test", baselines=("persistenc
     report["model_vs_baselines_p_genesis30"] = pv
     report["holm_corrected"] = holm(pv) if pv else {}
     # per-station predictions for offline analysis (hybrids, genesis threshold sweeps) without re-running inference
-    np.savez_compressed(Path(ckpt).parent / f"eval_{split}_preds.npz", y=y, genesis=gen, event=ev,
+    np.savez_compressed(Path(ckpt).parent / f"eval_{split}_preds.npz", y=y, genesis=gen, event=ev, src=src,
                         **{f"p_{n}": v for n, v in preds.items()})
     out = Path(ckpt).parent / f"eval_{split}.json"
     out.write_text(json.dumps(report, indent=1, default=float))

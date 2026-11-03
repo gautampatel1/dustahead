@@ -105,26 +105,16 @@ def has_code(wx: str, codes) -> bool:
     return any(c in expanded or c in toks for c in codes)
 
 
-def label_reports(obs: pd.DataFrame, warnings: pd.DataFrame, stations: pd.DataFrame, cfg: dict,
+def warning_flags(obs: pd.DataFrame, warnings: pd.DataFrame, stations: pd.DataFrame, cfg: dict,
                   polygons: dict | None = None, storm_events: pd.DataFrame | None = None) -> pd.DataFrame:
-    """Apply the station label rule to every ASOS report.
-
-    polygons: optional {(wfo, year, eventid): rings} from warnings.fetch_polygon; without one the check falls
-    back to the warning's county list, then to time alone.
-    storm_events: optional NCEI Storm Events rows (see events/storm_events.py) as a second cross-check.
-    Adds: dust_code, rain_too, vis_ok, in_warning, in_storm_event, label, severe.
-    """
+    """The warning cross-check shared by every label source: adds in_warning_strict (polygon hit), in_warning
+    (polygon hit OR the station's county named in a concurrent Dust Storm Warning) and in_storm_event (NCEI Storm
+    Events dust entry for the county) to a table with columns station, valid."""
     from .warnings import point_in_rings
 
     L = cfg["label"]
     pad = pd.Timedelta(minutes=L["warning_pad_min"])
     obs = obs.copy()
-    obs["dust_code"] = obs.wxcodes.map(lambda s: has_code(s, L["dust_codes"]))
-    obs["haze_only"] = obs.wxcodes.map(lambda s: has_code(s, ["HZ"])) & ~obs.wxcodes.map(lambda s: has_code(s, [c for c in L["dust_codes"] if c != "HZ"]))
-    obs["rain_too"] = obs.wxcodes.map(lambda s: has_code(s, L["rain_codes"]))
-    obs["vis_ok"] = obs.vsby <= L["vis_max_mi"]
-    obs["severe_vis"] = obs.vsby <= L["severe_vis_mi"]
-
     ds = warnings[warnings.phenomena == "DS"] if not warnings.empty else warnings
     st = stations.set_index("sid")
     in_w = np.zeros(len(obs), bool)          # polygon hit (strict)
@@ -149,6 +139,27 @@ def label_reports(obs: pd.DataFrame, warnings: pd.DataFrame, stations: pd.DataFr
     obs["in_warning_strict"] = in_w
     obs["in_warning"] = in_w | in_wc          # polygon hit, or the station's county is under a concurrent warning
     obs["in_storm_event"] = in_se
+    return obs
+
+
+def label_reports(obs: pd.DataFrame, warnings: pd.DataFrame, stations: pd.DataFrame, cfg: dict,
+                  polygons: dict | None = None, storm_events: pd.DataFrame | None = None) -> pd.DataFrame:
+    """Apply the station label rule to every ASOS report.
+
+    polygons: optional {(wfo, year, eventid): rings} from warnings.fetch_polygon; without one the check falls
+    back to the warning's county list, then to time alone.
+    storm_events: optional NCEI Storm Events rows (see events/storm_events.py) as a second cross-check.
+    Adds: dust_code, rain_too, vis_ok, in_warning, in_storm_event, label, severe.
+    """
+    L = cfg["label"]
+    obs = obs.copy()
+    obs["dust_code"] = obs.wxcodes.map(lambda s: has_code(s, L["dust_codes"]))
+    obs["haze_only"] = obs.wxcodes.map(lambda s: has_code(s, ["HZ"])) & ~obs.wxcodes.map(lambda s: has_code(s, [c for c in L["dust_codes"] if c != "HZ"]))
+    obs["rain_too"] = obs.wxcodes.map(lambda s: has_code(s, L["rain_codes"]))
+    obs["vis_ok"] = obs.vsby <= L["vis_max_mi"]
+    obs["severe_vis"] = obs.vsby <= L["severe_vis_mi"]
+
+    obs = warning_flags(obs, warnings, stations, cfg, polygons, storm_events)
     confirmed = obs.in_warning | obs.in_storm_event
     obs["label"] = (obs.vis_ok & obs.dust_code & confirmed).astype(int)
     obs["severe"] = (obs.label.astype(bool) & obs.severe_vis).astype(int)
@@ -163,13 +174,14 @@ def station_targets(labels: pd.DataFrame, stations: pd.DataFrame, t0: pd.Timesta
         if sid not in sids:
             continue
         row = dict(station=sid)
+        tol = float(grp.tol_min.iloc[0]) if "tol_min" in grp else tol_min     # hourly sources (PM10) use 30
         for lead in leads_min:
             tt = t0 + pd.Timedelta(minutes=lead)
             near = grp.iloc[(grp.valid - tt).abs().argsort()[:1]]
-            ok = (not near.empty) and abs((near.valid.iloc[0] - tt).total_seconds()) <= tol_min * 60
+            ok = (not near.empty) and abs((near.valid.iloc[0] - tt).total_seconds()) <= tol * 60
             row[f"y_{lead}"] = int(near.label.iloc[0]) if ok else -1   # -1 = no report (masked in loss)
         near0 = grp.iloc[(grp.valid - t0).abs().argsort()[:1]]
-        ok0 = (not near0.empty) and abs((near0.valid.iloc[0] - t0).total_seconds()) <= tol_min * 60
+        ok0 = (not near0.empty) and abs((near0.valid.iloc[0] - t0).total_seconds()) <= tol * 60
         row["dust_now"] = int(near0.label.iloc[0]) if ok0 else -1
         rows.append(row)
     return pd.DataFrame(rows)
