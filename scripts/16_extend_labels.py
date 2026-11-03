@@ -38,7 +38,12 @@ def _utc(t) -> pd.Timestamp:
 _G = {}
 
 
-def _init(cfg_path):
+FORCE = False
+
+
+def _init(cfg_path, force=False):
+    global FORCE
+    FORCE = force
     from dustahead import load_config
     from dustahead.grid import Grid
     cfg = load_config(cfg_path)
@@ -53,7 +58,7 @@ def rewrite_one(args):
     cfg, grid, stations = _G["cfg"], _G["grid"], _G["stations"]
     try:
         with np.load(path, allow_pickle=False) as z:
-            if "st_src" in z.files:
+            if "st_src" in z.files and not FORCE:
                 return "skip"
             s = {k: z[k] for k in z.files}
         labels = pd.read_csv(labels_csv, parse_dates=["valid"])
@@ -62,13 +67,37 @@ def rewrite_one(args):
         st = station_targets(labels, stations, t0, leads)
         st = st.merge(stations[["sid", "lon", "lat", "i", "j", "source"]], left_on="station", right_on="sid")
         y, w = s["y"].astype(np.float32), s["w"].astype(np.float32)
-        asos_disc = w >= 1.0                                   # existing ASOS discs keep precedence
+        R = cfg["label"]["station_radius_km"]
+        if FORCE and "st_src" in s:
+            # samples already extended: drop every extended disc first (back to ADP weight 0.3 or unknown 0),
+            # then paint the ASOS discs again so precedence is the same as in a first pass
+            w_ext = np.zeros_like(w, bool)
+            for li in range(len(leads)):
+                for (i, j), src_ in zip(s["st_ij"], s["st_src"]):
+                    if src_ != 0:
+                        w_ext[li] |= grid.disk_mask(float(grid.lons()[j]), float(grid.lats()[i]), R)
+            adp = (w > 0) & (w < 1.0)
+            w[w_ext & ~adp] = 0.0
+            y[w_ext & ~adp] = 0
+            for li, lead in enumerate(leads):
+                for r in st[st.source == "asos"].itertuples():
+                    v = getattr(r, f"y_{lead}")
+                    if v < 0:
+                        continue
+                    m = grid.disk_mask(r.lon, r.lat, R)
+                    y[li][m] = v
+                    w[li][m] = 1.0
+        asos_disc = np.zeros_like(w, bool)
+        for li, lead in enumerate(leads):
+            for r in st[st.source == "asos"].itertuples():
+                if getattr(r, f"y_{lead}") >= 0:
+                    asos_disc[li] |= grid.disk_mask(r.lon, r.lat, R)
         for li, lead in enumerate(leads):
             for r in st[st.source != "asos"].itertuples():
                 v = getattr(r, f"y_{lead}")
                 if v < 0:
                     continue
-                m = grid.disk_mask(r.lon, r.lat, cfg["label"]["station_radius_km"]) & ~asos_disc[li]
+                m = grid.disk_mask(r.lon, r.lat, R) & ~asos_disc[li]
                 y[li][m] = v
                 w[li][m] = 1.0
         s["y"], s["w"] = y.astype(np.uint8), w.astype(np.float16)
@@ -98,6 +127,8 @@ def main():
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--event", default=None)
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--force", action="store_true",
+                    help="re-label from the cached Synoptic time series (new thresholds in configs) and rewrite every sample again")
     a = ap.parse_args()
     cfg = load_config(a.config)
     grid = Grid.from_config(cfg)
@@ -133,11 +164,11 @@ def main():
     storm_events = {}
     T = cfg["time"]
     t_all = time.time()
-    with ProcessPoolExecutor(a.workers, initializer=_init, initargs=(a.config,)) as ex:
+    with ProcessPoolExecutor(a.workers, initializer=_init, initargs=(a.config, a.force)) as ex:
         for n_ev, ev in enumerate(events.itertuples()):
             t_ev = time.time()
             out_csv = L / "events_ext" / f"{ev.event_id}.csv"
-            if not out_csv.exists():
+            if not out_csv.exists() or a.force:
                 t_lo = ev.t_start - pd.Timedelta(hours=T["hours_before"] + 1)
                 t_hi = ev.t_end + pd.Timedelta(hours=T["hours_after"] + 1)
                 raw = L / "synoptic" / f"{ev.event_id}.csv"
