@@ -3,6 +3,8 @@
 Two optional extras, both read from cfg["train"]:
   init_from   path of a checkpoint whose weights initialise the model (fine-tuning: continue from a trained run at a
               lower learning rate instead of starting from random weights). The optimiser state is NOT restored.
+  init_unet_from  path of a train/pretrain.py checkpoint: the U-Net (sky branch) starts from self-supervised
+              masked-reconstruction weights; the output head and the gate start fresh.
   ema_decay   > 0 keeps an Exponential Moving Average (EMA) of the weights, theta_ema <- d * theta_ema + (1 - d) * theta
               after every optimiser step. The EMA copy is what is validated and saved: averaging along the trajectory
               lands in a flatter, better-calibrated minimum than the last noisy SGD iterate (Polyak averaging).
@@ -121,6 +123,10 @@ def train(cfg: dict, model_name: str | None = None, run_dir: str | Path | None =
         n_partial = load_partial(model, ck0["model"])
         print(f"initialised from {T['init_from']} (epoch {ck0.get('epoch')}, {ck0.get('name')}; "
               f"{n_partial} tensor(s) widened for new input channels)", flush=True)
+    if T.get("init_unet_from"):            # self-supervised pre-training of the sky branch (train/pretrain.py)
+        from .pretrain import load_pretrained_unet
+        n_pre = load_pretrained_unet(model, T["init_unet_from"], device)
+        print(f"U-Net initialised from {T['init_unet_from']} ({n_pre} tensors; output head new)", flush=True)
     ema = EMA(model, float(T["ema_decay"])) if T.get("ema_decay") else None
     eval_model = ema.model if ema is not None else model
     opt = torch.optim.AdamW(model.parameters(), lr=T["lr"], weight_decay=T["weight_decay"])

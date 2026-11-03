@@ -91,3 +91,25 @@ def test_warm_start_with_forecast_channels_reproduces_base_model():
     x = torch.randn(2, N_CH_IN_FCST, 32, 32)
     with torch.no_grad():
         assert torch.allclose(base(x[:, :N_CH_IN]), wide(x), atol=1e-6)
+
+
+def test_pretrain_and_transfer(tmp_path):
+    """Masked-reconstruction pre-training runs on synthetic data and its U-Net weights load into the gated model."""
+    import copy
+    from dustahead import load_config
+    from dustahead.data.synthetic import make_synthetic_dataset
+    from dustahead.grid import Grid
+    from dustahead.models import build_model
+    from dustahead.train.pretrain import pretrain, load_pretrained_unet
+    cfg = copy.deepcopy(load_config())
+    cfg["paths"].update(samples=str(tmp_path / "samples"), runs=str(tmp_path / "runs"))
+    cfg["train"].update(batch_size=2, num_workers=0, crop=[48, 64], amp=False)
+    cfg["model"].update(base_channels=8, depth=2, gate_channels=["static", "physics"])
+    make_synthetic_dataset(cfg["paths"]["samples"], Grid.from_config(cfg), n=8, small=True)
+    out = pretrain(cfg, tmp_path / "pre", epochs=1, patch=8, ratio=0.5, device="cpu")
+    ck = torch.load(out / "unet.pt", weights_only=False)
+    assert not any(k.startswith("head.") for k in ck["unet"]) and ck["masked_mse"] > 0
+    m = build_model(cfg, "gated_unet")
+    before = m.unet.enc[0].net[0].weight.clone()
+    n = load_pretrained_unet(m, out / "unet.pt")
+    assert n > 10 and not torch.equal(before, m.unet.enc[0].net[0].weight)
