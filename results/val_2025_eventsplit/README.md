@@ -316,3 +316,23 @@ Reading.
 Decisions: product unchanged (no ensemble beats it). Paper: v8 remains the clean reference; v11 / v11f go in as the
 "data-limited" evidence (training-curve figure + the POD gain). Next data levers, in order: road-weather (RWIS) and
 PM10 ground truth through Synoptic Data (needs an API token), then self-supervised pre-training of the sky branch.
+
+## 3 Nov — v12: self-supervised pre-training of the sky branch (`scripts/15_pretrain.py`, `configs/pretrain_v12.yaml`)
+
+The U-Net was first trained with no labels to reconstruct randomly hidden 16 × 16-cell patches (50 % of each
+crop) of its own 56-channel input on the 21,742 training samples: masked MSE 0.136 → 0.098 over 15 epochs
+(`pretrain_mae_v1_log.json`). v12 then trains the v8 recipe from those weights (head and gate new, lr 5e-4).
+
+| model | best epoch | +15 | +30 | +60 | genesis CSI at 0.5 (raw) | genesis POD | Brier +30 | p vs persist. (Holm) |
+|---|---|---|---|---|---|---|---|---|
+| gated_unet v8 | 1 | 0.508 | 0.383 | 0.210 | 0.050 / 0.060 / 0.093 | 0.30 / 0.35 / 0.42 | 0.0027 | 0.014 (0.056) |
+| gated_unet v11 (densified) | 13 | 0.493 | 0.388 | 0.209 | 0.054 / 0.067 / 0.094 | 0.21 / 0.28 / 0.42 | 0.0020 | 0.014 (0.056) |
+| gated_unet v12 (pre-trained, densified) | 9 | 0.497 | 0.388 | 0.201 | **0.024 / 0.007 / 0.049** | **0.04 / 0.01 / 0.09** | **0.0012** | 0.70 (1.0) |
+
+**Negative for onset.** All-station skill and calibration are as good as any model (the lowest Brier score so far),
+but onset detection collapsed: 1 % of +30 onsets caught. The training loss fell to 0.20 (v8 stopped at 1.0), i.e.
+the pre-trained features let the network memorise the training set within ten epochs, and what it memorised is
+the persistence-type signal, which dominates the loss. Reconstruction pre-training rewards low-level texture, not
+the rare precursor patterns. Follow-up queued as v12b (lr 1e-4, EMA 0.999) to test whether a gentler fine-tune keeps
+the onset sensitivity; if that is also negative, pre-training is closed in this form (a contrastive or
+future-frame objective would be the next thing to try, not more of the same).
