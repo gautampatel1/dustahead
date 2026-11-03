@@ -16,3 +16,6 @@ __pycache__/
 .uv-cache/
 dustahead_pkg/
 _old_wrapper/
+
+# API tokens (never commit)
+/.secrets/
