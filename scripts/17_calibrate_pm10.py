@@ -22,23 +22,24 @@ from dustahead import load_config
 
 
 def pair(ext_obs: pd.DataFrame, asos_lab: pd.DataFrame, pairs: dict, window: pd.Timedelta) -> pd.DataFrame:
-    """ext_obs: station, valid, value. For each row, the max ASOS label among co-located stations within ±window."""
-    out = []
-    asos_lab = asos_lab.sort_values("valid")
-    by_st = {s: g for s, g in asos_lab.groupby("station")}
-    for r in ext_obs.itertuples():
-        best = -1
-        for a in pairs.get(r.station, ()):
-            g = by_st.get(a)
-            if g is None:
-                continue
-            k = np.searchsorted(g.valid.values, r.valid.to_datetime64())
-            for kk in (k - 1, k):
-                if 0 <= kk < len(g) and abs(g.valid.iloc[kk] - r.valid) <= window:
-                    best = max(best, int(g.label.iloc[kk]))
-        if best >= 0:
-            out.append((r.station, r.valid, r.value, best))
-    return pd.DataFrame(out, columns=["station", "valid", "value", "asos_label"])
+    """ext_obs: station, valid, value. For each row, the max ASOS label among co-located stations within ±window
+    (vectorised: one merge_asof per direction over the exploded station pairs)."""
+    link = pd.DataFrame([(e, a) for e, al in pairs.items() for a in al], columns=["station", "asos"])
+    x = ext_obs.merge(link, on="station")
+    if x.empty:
+        return pd.DataFrame(columns=["station", "valid", "value", "asos_label"])
+    x = x.sort_values("valid").reset_index(drop=True)
+    x["row"] = np.arange(len(x))
+    lab = asos_lab[["station", "valid", "label"]].rename(columns={"station": "asos"}).sort_values("valid")
+    best = pd.Series(-1, index=x.row)
+    for direction in ("backward", "forward"):
+        m = pd.merge_asof(x[["row", "valid", "asos"]], lab, on="valid", by="asos", direction=direction, tolerance=window)
+        got = m.label.notna().values
+        best.loc[m.row[got]] = np.maximum(best.loc[m.row[got]].values, m.label[got].astype(int).values)
+    x["asos_label"] = best.values
+    # several ASOS neighbours -> keep the max label per extended observation
+    out = x.groupby(["station", "valid", "value"], as_index=False).asos_label.max()
+    return out[out.asos_label >= 0].reset_index(drop=True)
 
 
 def sweep(df: pd.DataFrame, thresholds, ge: bool = True) -> list[dict]:
