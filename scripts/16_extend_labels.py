@@ -137,7 +137,7 @@ def main():
 
     asos = pd.read_csv(L / "stations.csv")
     inv = station_inventory((D["lon_min"], D["lat_min"], D["lon_max"], D["lat_max"]))
-    ext = extended_station_table(inv, asos, grid)
+    ext = extended_station_table(inv, asos, grid, sources=tuple(cfg["label"].get("ext_sources", ("rwis", "vis_other", "pm10"))))
     asos["source"] = "asos"
     stations = pd.concat([asos, ext], ignore_index=True)
     stations.to_csv(L / "stations_ext.csv", index=False)

@@ -15,6 +15,10 @@ kept, the dust code is replaced by what the sensor can say):
   PM10:  hourly PM10 >= cfg.label.pm10_ugm3 (default 250 ug/m3) AND inside a warning window/polygon.
          Severe when PM10 >= 4 x that threshold (one-hour haboob peaks are typically 1,000-5,000 ug/m3).
 Both are recorded with `source` = "rwis" | "pm10" so every result can be reported with and without them.
+Calibration (scripts/17_calibrate_pm10.py, 4 Nov 2026): at co-located stations PM10-dust agrees with the ASOS
+dust label 9 % of the time at any threshold (CSI <= 0.08) and the range/mesonet visibility sensors 0 %; only
+road-weather (RWIS) visibility is kept as a label source (cfg.label.ext_sources). PM10 is kept in the inventory
+as a possible live INPUT, not as truth.
 
 Access: token in <repo>/.secrets/synoptic_token.txt (never committed) or env SYNOPTIC_TOKEN. Free academic tier.
 API: https://api.synopticdata.com/v2/stations/{metadata,timeseries}; times UTC ("obtimezone=UTC"), units metric.
@@ -98,7 +102,8 @@ def timeseries(stids: list[str], start: pd.Timestamp, end: pd.Timestamp, variabl
 
 
 # ---- extended station table and label rule ----------------------------------------------------------------------
-def extended_station_table(inventory: pd.DataFrame, asos: pd.DataFrame, grid, i10_km: float | None = None) -> pd.DataFrame:
+def extended_station_table(inventory: pd.DataFrame, asos: pd.DataFrame, grid, i10_km: float | None = None,
+                           sources=("rwis", "vis_other", "pm10")) -> pd.DataFrame:
     """Non-ASOS stations that can label dust, in the stations.csv layout plus `source`:
       rwis      road-weather visibility (AZDOT / NMDOT / CALTRANS)
       vis_other any other visibility sensor (WSMR, YPG, CWOP, ...)
@@ -116,6 +121,8 @@ def extended_station_table(inventory: pd.DataFrame, asos: pd.DataFrame, grid, i1
         elif r.has_vis:
             src = "rwis" if str(r.network).upper() in ("AZDOT", "NMDOT", "CALTRANS", "TXDOT") else "vis_other"
         else:
+            continue
+        if src not in sources:
             continue
         rows.append(dict(sid=r.stid, name=r.name, lon=r.lon, lat=r.lat, network=r.network, wfo=None,
                          ugc_county=None, county=getattr(r, "county", None), elevation=r.elevation, source=src))
