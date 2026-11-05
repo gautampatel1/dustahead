@@ -179,8 +179,34 @@ def label_reports(obs: pd.DataFrame, warnings: pd.DataFrame, stations: pd.DataFr
     return obs
 
 
+def station_now(obs: pd.DataFrame, sids, t0, cfg: dict) -> np.ndarray:
+    """What each station says AT t0, from reports a forecaster would already have: 1 dust, 0 clear, -1 no report
+    (the stored `st_now` encoding that sampler.paint_station_now and station dropout expect).
+
+    Rule (the same function builds the training channel and the live one, so they cannot drift apart):
+        among the station's last `label.now_last_reports` reports valid in (t0 - label.now_window_min, t0],
+        dust = any report with visibility <= vis_max_mi AND a dust code other than haze (HZ) alone.
+    Why not the station LABEL at t0: the label needs a Dust Storm Warning within ±warning_pad_min, so a report at
+    t0 counted as dust only if a warning was issued up to an hour later - information from after the forecast
+    time (hard rule 3) - and the nearest report could itself be up to 5 min after t0. HZ is a dust code for the
+    label only because the warning confirms it; with no warning check, haze-only reports (smoke, sensor haze)
+    count as clear. Missing visibility counts as clear, as in the live feed.
+    """
+    L = cfg["label"]
+    t0 = pd.Timestamp(t0)
+    t0 = t0.tz_localize("UTC") if t0.tzinfo is None else t0.tz_convert("UTC")
+    valid = pd.to_datetime(obs["valid"], utc=True)
+    recent = obs.loc[(valid > t0 - pd.Timedelta(minutes=L.get("now_window_min", 20))) & (valid <= t0)].assign(valid=valid)
+    recent = recent.sort_values("valid").groupby("station").tail(int(L.get("now_last_reports", 3)))
+    codes = [c for c in L["dust_codes"] if c != "HZ"]
+    is_dust = (recent.vsby <= L["vis_max_mi"]) & recent.wxcodes.fillna("").astype(str).map(lambda s: has_code(s, codes))
+    dusty, reported = set(recent.station[is_dust]), set(recent.station)
+    return np.array([1 if s in dusty else (0 if s in reported else -1) for s in sids], np.int8)
+
+
 def station_targets(labels: pd.DataFrame, stations: pd.DataFrame, t0: pd.Timestamp, leads_min, tol_min: int = 5) -> pd.DataFrame:
-    """For one forecast time t0, the label at each station at t0 + lead (nearest report within ±tol)."""
+    """For one forecast time t0, the label at each station at t0 + lead (nearest report within ±tol). These are
+    TARGETS, so they may use the warning cross-check; the t0 input channel comes from station_now() instead."""
     rows = []
     sids = set(stations.sid)
     for sid, grp in labels.groupby("station"):
@@ -193,9 +219,6 @@ def station_targets(labels: pd.DataFrame, stations: pd.DataFrame, t0: pd.Timesta
             near = grp.iloc[(grp.valid - tt).abs().argsort()[:1]]
             ok = (not near.empty) and abs((near.valid.iloc[0] - tt).total_seconds()) <= tol * 60
             row[f"y_{lead}"] = int(near.label.iloc[0]) if ok else -1   # -1 = no report (masked in loss)
-        near0 = grp.iloc[(grp.valid - t0).abs().argsort()[:1]]
-        ok0 = (not near0.empty) and abs((near0.valid.iloc[0] - t0).total_seconds()) <= tol * 60
-        row["dust_now"] = int(near0.label.iloc[0]) if ok0 else -1
         rows.append(row)
     return pd.DataFrame(rows)
 

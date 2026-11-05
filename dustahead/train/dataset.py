@@ -70,6 +70,10 @@ class DustDataset(Dataset):
                 keep = [int(k * step) for k in range(limit)]
             self.files = [self.files[k] for k in keep]
             self.rows = self.rows.iloc[keep].reset_index(drop=True) if self.rows is not None else None
+        with np.load(self.files[0], allow_pickle=False) as z:
+            if "st_now_causal" not in z.files:
+                print(f"[dataset] {split}: samples carry the label-based station channel (uses warnings issued after t0); "
+                      "run scripts/20_causal_station_now.py", flush=True)
         self.crop = crop
         self.rng = np.random.default_rng(seed)
         # station-dropout augmentation (training only): hide a fraction of the current station reports so the model

@@ -62,7 +62,7 @@ def synthetic_sample(grid: Grid, rng: np.random.Generator, leads=(15, 30, 60), d
     xr = np.stack([x[42 + k] for k in range(N_RADAR)]).clip(0, 1)                                                  # fake "radar"
     return dict(x=x.astype(np.float16), y=y.astype(np.uint8), w=w.astype(np.float16), xf=xf.astype(np.float16), xr=xr.astype(np.float16),
                 st_ij=np.stack([si, sj], 1).astype(np.int16), st_y=st_y,
-                st_now=np.zeros(n_st, np.int8), t0=np.datetime64("2025-08-26T02:00"),
+                st_now=np.zeros(n_st, np.int8), st_now_causal=np.array(True), t0=np.datetime64("2025-08-26T02:00"),
                 genesis=np.array(True), dust_rgb=np.zeros((ny, nx, 3), np.uint8))
 
 

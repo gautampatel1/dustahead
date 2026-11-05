@@ -27,7 +27,7 @@ from .. import load_config
 from ..data import goes, glm, hrrr, physics, radar
 from ..data.sampler import BANDS, N_CH_IN, N_FCST, assemble, assemble_forecast, assemble_radar, genesis_per_station, paint_station_now, wants_forecast, wants_radar
 from ..data.static import NAMES as STATIC_NAMES, load_static
-from ..events.stations import fetch_asos, fetch_station_table, has_code
+from ..events.stations import fetch_asos, fetch_station_table, station_now
 from ..grid import Grid
 from ..train.train import load_checkpoint
 
@@ -68,12 +68,12 @@ class DustAhead:
         hrrr.set_cache(P["cache"])
         sat, flashes = [], []
         for t in goes.frame_times(t0, T["history_frames"], T["step_min"]):
-            f = goes.nearest_file(S["bucket"], S["product"], t)
+            f = goes.available_file(S["bucket"], S["product"], t, S.get("latency_min", 2.0))
             if f is None:
-                raise RuntimeError(f"no GOES file near {t}")
+                raise RuntimeError(f"no GOES file available at {t}")
             sat.append(goes.frame_cached(f, self.grid, Path(P["cache"]) / "goes", BANDS))
             flashes.append(glm.flash_density_at(t, self.grid, self.cfg))
-        hr = hrrr.hrrr_stack(t0, self.grid)
+        hr = hrrr.hrrr_stack(t0, self.grid, self.cfg["hrrr"].get("analysis_lag_min", 60))
         hr["rain7d"] = hrrr.hrrr_7day_rain(t0, self.grid, days=7)
         clay, bare = self.static[STATIC_NAMES.index("clay")], self.static[STATIC_NAMES.index("bare")]
         prior = physics.erodibility_prior(hr["wind10"], hr["soilm"] * 25.0, clay, bare)
@@ -82,9 +82,11 @@ class DustAhead:
         self.last_xr = assemble_radar(radar.radar_stack(t0, self.grid, P["cache"])) if self.needs_radar else None
         return assemble(sat, flashes, hr, self.static, prior)
 
-    def station_now_live(self, t0: dt.datetime, window_min: int = 20) -> tuple[np.ndarray, np.ndarray]:
-        """What the ASOS stations say at t0: +1 dust (vis <= 1 mi and a dust code in a report within
-        `window_min` before t0), -1 clear report in the window, 0 no report. Live analogue of st_now."""
+    def station_now_live(self, t0: dt.datetime) -> tuple[np.ndarray, np.ndarray]:
+        """What the ASOS stations say at t0: 1 dust, 0 clear report, -1 no report - the same rule and encoding that
+        built the training channel (events.stations.station_now: last reports within label.now_window_min of t0).
+        Before Nov 2026 this returned -1 for clear and 0 for no report, the reverse of the stored samples, so the
+        painted channel dropped clear stations and marked unreported ones clear."""
         L = self.cfg["label"]
         if self.stations is None:
             f = Path(self.cfg["paths"]["labels"]) / "stations.csv"
@@ -93,15 +95,11 @@ class DustAhead:
         st = self.stations
         import pandas as pd
         t0p = pd.Timestamp(t0).tz_localize("UTC") if pd.Timestamp(t0).tzinfo is None else pd.Timestamp(t0)
-        now = np.zeros(len(st), np.int8)
+        now = np.full(len(st), -1, np.int8)          # -1 = no report
         try:
-            obs = fetch_asos(list(st.sid), t0p - pd.Timedelta(minutes=window_min), t0p, tuple(L["asos_report_types"]))
-            obs = obs[obs.valid <= t0p].sort_values("valid").groupby("station").tail(3)
-            dust = obs[(obs.vsby <= L["vis_max_mi"]) & obs.wxcodes.apply(lambda w: has_code(w, L["dust_codes"]))]
-            reported = set(obs.station)
-            dusty = set(dust.station)
-            for k, sid in enumerate(st.sid):
-                now[k] = 1 if sid in dusty else (-1 if sid in reported else 0)
+            obs = fetch_asos(list(st.sid), t0p - pd.Timedelta(minutes=L.get("now_window_min", 20)), t0p,
+                             tuple(L["asos_report_types"]))
+            now = station_now(obs, st.sid.values, t0p, self.cfg)
         except Exception as e:  # noqa: BLE001  - no network: run with "no report" everywhere and say so
             print(f"[DustAhead] live ASOS fetch failed ({type(e).__name__}): station channel = no report")
         ij = np.stack([st.i.values, st.j.values], 1).astype(np.int64)
