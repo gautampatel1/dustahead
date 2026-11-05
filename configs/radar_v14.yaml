@@ -1,0 +1,12 @@
+# Experiment config (v14): v11f recipe (densified onset windows, HRRR forecast block) + NEXRAD composite reflectivity
+# (3 frames) as sky-branch inputs + an auxiliary dense head predicting the satellite dust mask (multi-task).
+# Why: the two things the skilful Saharan systems (DustNet, AI-GAMFS) have that we lacked - dense supervision from
+# a satellite target at every labelled pixel, and the convective precursor (outflow boundary) that only radar shows.
+# Needs: scripts/13_add_hrrr_forecast.py and scripts/19_add_radar.py run on the samples.
+channels:
+  hrrr_fcst: 6
+  radar: 3
+model:
+  gate_channels: [static, physics]
+loss:
+  w_aux: 1.0

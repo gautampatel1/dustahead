@@ -53,7 +53,7 @@ if args.demo:
     s = load_sample(ev_files[k])
     from dustahead.data.sampler import paint_station_now
     out = E.predict_array(s["x"].astype(np.float32), paint_station_now(s["st_ij"], s["st_now"], s["x"].shape[1:])[None],
-                          s["st_ij"], s["st_now"], xf=s.get("xf"))
+                          s["st_ij"], s["st_now"], xf=s.get("xf"), xr=s.get("xr"))
     out["t0"] = str(s["t0"])
     out["dust_rgb"] = s["dust_rgb"]
     out["station_ij"], out["station_now"] = s["st_ij"], s["st_now"]

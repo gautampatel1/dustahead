@@ -61,11 +61,21 @@ class DustLoss(torch.nn.Module):
         self.wf, self.ws, self.wst = L["w_focal"], L["w_fss"], L["w_station"]
         self.pos_w = L.get("station_pos_weight", 1.0)
         self.gen_w = L.get("station_genesis_weight", 0.0)
+        # auxiliary dense head (model.unet.last_aux): focal + FSS against the same painted targets but with EVERY
+        # labelled pixel at full weight (ADP satellite pixels included, w > 0), no station term.
+        self.w_aux = float(L.get("w_aux", 0.0))
 
-    def forward(self, p, batch):
+    def forward(self, p, batch, aux_logits=None):
         y, w = batch["y"], batch["w"]
         lf = focal_loss(p, y, w, self.a, self.g)
         ls = 1 - fss(p, y, w, self.n)
         lst = station_bce(p, batch["st_ij"], batch["st_y"], self.pos_w, batch.get("st_gen"), self.gen_w)
         total = self.wf * lf + self.ws * ls + self.wst * lst
-        return total, dict(focal=lf.item(), fss=ls.item(), station=lst.item())
+        parts = dict(focal=lf.item(), fss=ls.item(), station=lst.item())
+        if self.w_aux and aux_logits is not None:
+            pa = torch.sigmoid(aux_logits.float())
+            wa = (w > 0).float()
+            la = focal_loss(pa, y, wa, self.a, self.g) + (1 - fss(pa, y, wa, self.n))
+            total = total + self.w_aux * la
+            parts["aux"] = la.item()
+        return total, parts

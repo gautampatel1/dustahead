@@ -9,6 +9,8 @@ Channel layout (index : content : normalisation)
   55-60  static      elevation/3000, slope/30, bare, landcover, sand/100, clay/100
   61     physics     erodibility prior E in [0,1]
   62     station     painted at load time by the dataset (+1 dust reported now, -1 clear, 0 no report)
+  69-71  radar       OPTIONAL (key `xr`, channels.radar): NEXRAD composite reflectivity at t0-20, t0-10, t0,
+                     clip(dBZ,0,70)/60 - the outflow boundary ("fine line") that precedes a haboob (data/radar.py).
   63-68  hrrr_fcst   OPTIONAL (stored as a separate key `xf`, enabled by channels.hrrr_fcst): HRRR short-range
                      FORECAST valid about t0+1 h from the run initialised 2 h before t0 (so it existed at t0):
                      u10/15, v10/15, gust/25, cape/2000, refc/60 (composite reflectivity, dBZ), and gust/25 valid
@@ -50,8 +52,12 @@ CH = {  # channel index ranges, for the gate and for plotting
     "station": slice(62, 63),   # painted at load time by the dataset: +1 dust reported at t0, -1 no dust, 0 no report (12 km discs)
     "hrrr_fcst": slice(63, 63 + N_FCST),   # only present when the model asks for it (channels.hrrr_fcst > 0)
 }
+RADAR_KEYS = ("dbz_m20", "dbz_m10", "dbz_0")      # NEXRAD composite reflectivity at t0-20, t0-10, t0 (key `xr`)
+N_RADAR = len(RADAR_KEYS)
+CH["radar"] = slice(63 + N_FCST, 63 + N_FCST + N_RADAR)   # static slot: after the forecast block even if that is absent
 N_CH_IN = 63                 # base input: stored x (62) + station channel
 N_CH_IN_FCST = 63 + N_FCST   # with the HRRR forecast block appended
+N_CH_IN_FULL = 63 + N_FCST + N_RADAR
 
 
 def assemble_forecast(fc: dict[str, np.ndarray]) -> np.ndarray:
@@ -59,30 +65,45 @@ def assemble_forecast(fc: dict[str, np.ndarray]) -> np.ndarray:
     return np.stack([np.nan_to_num(fc[k]) / s for k, s in zip(FCST_KEYS, FCST_SCALE)]).astype(np.float32)
 
 
-def input_stack(sample: dict, st_now: np.ndarray | None = None, with_forecast: bool = False) -> np.ndarray:
-    """The model input for one stored sample: x (62) + painted station channel (+ the forecast block `xf`).
-    `st_now` overrides the stored reports (station dropout, live reports). A sample built without the forecast
-    block (scripts/13_add_hrrr_forecast.py not run on it) gets zeros there, and a warning is printed once."""
+def assemble_radar(stack: np.ndarray) -> np.ndarray:
+    """(N_RADAR, ny, nx) float32 from radar.radar_stack(): clip(dBZ, 0, 70) / 60, missing frames -> 0."""
+    return (np.clip(np.nan_to_num(stack, nan=0.0), 0.0, 70.0) / 60.0).astype(np.float32)
+
+
+def input_stack(sample: dict, st_now: np.ndarray | None = None, with_forecast: bool = False,
+                with_radar: bool = False) -> np.ndarray:
+    """The model input for one stored sample: x (62) + painted station channel (+ the forecast block `xf`
+    + the radar block `xr`). Blocks sit at fixed channel slots (CH), so when the radar block is wanted the forecast
+    slot is filled with zeros if the model does not use it. `st_now` overrides the stored reports (station dropout,
+    live reports). A sample missing a wanted block gets zeros there, and a warning is printed once."""
     x = sample["x"].astype(np.float32)
     now = sample["st_now"] if st_now is None else st_now
     parts = [x, paint_station_now(sample["st_ij"], now, x.shape[1:])[None]]
-    if with_forecast:
-        if "xf" in sample:
-            parts.append(sample["xf"].astype(np.float32))
-        else:
-            global _WARNED_NO_XF
-            if not _WARNED_NO_XF:
-                print("[sampler] sample without HRRR forecast block `xf`: zeros used (run scripts/13_add_hrrr_forecast.py)", flush=True)
-                _WARNED_NO_XF = True
-            parts.append(np.zeros((N_FCST,) + x.shape[1:], np.float32))
+    if with_forecast or with_radar:
+        parts.append(_block(sample, "xf", N_FCST, x.shape[1:], warn=with_forecast))
+    if with_radar:
+        parts.append(_block(sample, "xr", N_RADAR, x.shape[1:], warn=True))
     return np.concatenate(parts, 0)
 
 
-_WARNED_NO_XF = False
+_WARNED = set()
+
+
+def _block(sample: dict, key: str, n: int, shape, warn: bool) -> np.ndarray:
+    if key in sample:
+        return sample[key].astype(np.float32)
+    if warn and key not in _WARNED:
+        print(f"[sampler] sample without block `{key}`: zeros used (run the matching scripts/1x_add_*.py)", flush=True)
+        _WARNED.add(key)
+    return np.zeros((n,) + tuple(shape), np.float32)
 
 
 def wants_forecast(cfg: dict) -> bool:
     return bool(cfg.get("channels", {}).get("hrrr_fcst", 0))
+
+
+def wants_radar(cfg: dict) -> bool:
+    return bool(cfg.get("channels", {}).get("radar", 0))
 
 
 def paint_station_now(st_ij: np.ndarray, st_now: np.ndarray, shape: tuple[int, int], radius_cells: int = 3) -> np.ndarray:

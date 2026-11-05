@@ -57,9 +57,10 @@ def synthetic_sample(grid: Grid, rng: np.random.Generator, leads=(15, 30, 60), d
     n_st = 12
     si, sj = rng.integers(0, ny, n_st), rng.integers(0, nx, n_st)
     st_y = np.stack([y[li][si, sj] for li in range(len(leads))], 1).astype(np.int8)
-    from .sampler import N_FCST
+    from .sampler import N_FCST, N_RADAR
     xf = np.stack([x[47], x[48], x[49], x[50], rng.random((ny, nx), dtype=np.float32) * 0.5, x[49]])[:N_FCST]   # fake "forecast"
-    return dict(x=x.astype(np.float16), y=y.astype(np.uint8), w=w.astype(np.float16), xf=xf.astype(np.float16),
+    xr = np.stack([x[42 + k] for k in range(N_RADAR)]).clip(0, 1)                                                  # fake "radar"
+    return dict(x=x.astype(np.float16), y=y.astype(np.uint8), w=w.astype(np.float16), xf=xf.astype(np.float16), xr=xr.astype(np.float16),
                 st_ij=np.stack([si, sj], 1).astype(np.int16), st_y=st_y,
                 st_now=np.zeros(n_st, np.int8), t0=np.datetime64("2025-08-26T02:00"),
                 genesis=np.array(True), dust_rgb=np.zeros((ny, nx, 3), np.uint8))

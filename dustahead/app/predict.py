@@ -24,8 +24,8 @@ import numpy as np
 import torch
 
 from .. import load_config
-from ..data import goes, glm, hrrr, physics
-from ..data.sampler import BANDS, N_CH_IN, assemble, assemble_forecast, genesis_per_station, paint_station_now, wants_forecast
+from ..data import goes, glm, hrrr, physics, radar
+from ..data.sampler import BANDS, N_CH_IN, N_FCST, assemble, assemble_forecast, assemble_radar, genesis_per_station, paint_station_now, wants_forecast, wants_radar
 from ..data.static import NAMES as STATIC_NAMES, load_static
 from ..events.stations import fetch_asos, fetch_station_table, has_code
 from ..grid import Grid
@@ -58,7 +58,9 @@ class DustAhead:
         self.stations = None            # station table, loaded on first live call
         self.last_station = None        # (st_ij, st_now) of the last live station fetch
         self.needs_forecast = any(wants_forecast(ck["cfg"]) for _, ck in self.members)   # HRRR forecast block wanted
+        self.needs_radar = any(wants_radar(ck["cfg"]) for _, ck in self.members)         # radar block wanted
         self.last_xf = None             # forecast block of the last build_live_input
+        self.last_xr = None             # radar block of the last build_live_input
 
     # ---- inputs ----
     def build_live_input(self, t0: dt.datetime) -> np.ndarray:
@@ -77,6 +79,7 @@ class DustAhead:
         prior = physics.erodibility_prior(hr["wind10"], hr["soilm"] * 25.0, clay, bare)
         self.last_rgb = goes.dust_rgb(sat[-1])
         self.last_xf = assemble_forecast(hrrr.forecast_stack(t0, self.grid)) if self.needs_forecast else None
+        self.last_xr = assemble_radar(radar.radar_stack(t0, self.grid, P["cache"])) if self.needs_radar else None
         return assemble(sat, flashes, hr, self.static, prior)
 
     def station_now_live(self, t0: dt.datetime, window_min: int = 20) -> tuple[np.ndarray, np.ndarray]:
@@ -108,18 +111,25 @@ class DustAhead:
     # ---- inference ----
     @torch.no_grad()
     def predict_array(self, x: np.ndarray, station_now: np.ndarray | None = None, st_ij=None, st_now=None,
-                      xf: np.ndarray | None = None) -> dict:
+                      xf: np.ndarray | None = None, xr: np.ndarray | None = None) -> dict:
         """x: the stored/live 62-channel input (the station channel is appended here if missing). xf: the HRRR
         forecast block (6, ny, nx), required when any member was trained with it (stored samples carry it as `xf`;
         live mode takes it from the last build_live_input). Members index their own channels, so the full stack
         is safe to pass to every member."""
         if x.shape[0] < N_CH_IN:   # live mode: append the painted station channel (zeros = no report anywhere)
             x = np.concatenate([x, (station_now if station_now is not None else np.zeros((1,) + x.shape[1:], np.float32))], 0)
-        if self.needs_forecast and x.shape[0] == N_CH_IN:
+        if (self.needs_forecast or self.needs_radar) and x.shape[0] == N_CH_IN:
             xf = xf if xf is not None else self.last_xf
             if xf is None:
-                raise ValueError("a member needs the HRRR forecast block: pass xf (sample['xf']) or call build_live_input first")
+                if self.needs_forecast:
+                    raise ValueError("a member needs the HRRR forecast block: pass xf (sample['xf']) or call build_live_input first")
+                xf = np.zeros((N_FCST,) + x.shape[1:], np.float32)        # slot filler: only the radar block is used
             x = np.concatenate([x, xf.astype(np.float32)], 0)
+        if self.needs_radar and x.shape[0] == N_CH_IN + N_FCST:
+            xr = xr if xr is not None else self.last_xr
+            if xr is None:
+                raise ValueError("a member needs the radar block: pass xr (sample['xr']) or call build_live_input first")
+            x = np.concatenate([x, xr.astype(np.float32)], 0)
         xt = torch.from_numpy(x.astype(np.float32))[None].to(self.device)
         probs, gate, members = None, None, {}
         for (model, ck), mname in zip(self.members, self.member_names):

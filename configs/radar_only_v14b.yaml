@@ -1,0 +1,6 @@
+# Experiment config (v14b): radar inputs ALONE on the v11f recipe (no auxiliary head).
+channels:
+  hrrr_fcst: 6
+  radar: 3
+model:
+  gate_channels: [static, physics]

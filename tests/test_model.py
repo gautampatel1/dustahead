@@ -113,3 +113,30 @@ def test_pretrain_and_transfer(tmp_path):
     before = m.unet.enc[0].net[0].weight.clone()
     n = load_pretrained_unet(m, out / "unet.pt")
     assert n > 10 and not torch.equal(before, m.unet.enc[0].net[0].weight)
+
+
+def test_radar_block_and_aux_head():
+    """channels.radar adds three sky-branch inputs at the fixed radar slot; loss.w_aux adds a dense auxiliary head
+    whose logits reach the loss; a checkpoint without either is still a channel prefix for a warm start."""
+    import copy
+    from dustahead import load_config
+    from dustahead.models import build_model
+    from dustahead.train.losses import DustLoss
+    from dustahead.data.sampler import CH, N_CH_IN_FULL, N_FCST, N_RADAR
+    assert CH["radar"].stop == N_CH_IN_FULL and CH["radar"].start == CH["hrrr_fcst"].stop
+    cfg = copy.deepcopy(load_config())
+    cfg["model"].update(base_channels=8, depth=2, gate_channels=["static", "physics"])
+    cfg["channels"].update(hrrr_fcst=6, radar=3); cfg["loss"]["w_aux"] = 1.0
+    m = build_model(cfg, "gated_unet")
+    assert int(m.dyn_idx.max()) == N_CH_IN_FULL - 1 and m.unet.aux_head is not None
+    x = torch.randn(2, N_CH_IN_FULL, 32, 32)
+    p = m(x)
+    assert m.unet.last_aux.shape == p.shape
+    batch = dict(y=torch.zeros(2, 3, 32, 32), w=torch.ones(2, 3, 32, 32), st_ij=torch.zeros(2, 4, 2, dtype=torch.long),
+                 st_y=torch.zeros(2, 4, 3, dtype=torch.long))
+    total, parts = DustLoss(cfg)(p, batch, m.unet.last_aux)
+    assert "aux" in parts and torch.isfinite(total)
+    # radar without the forecast block still sits at the same slot (forecast slot filled with zeros by input_stack)
+    cfg2 = copy.deepcopy(cfg); cfg2["channels"]["hrrr_fcst"] = 0; cfg2["loss"]["w_aux"] = 0
+    m2 = build_model(cfg2, "gated_unet")
+    assert int(m2.dyn_idx.max()) == N_CH_IN_FULL - 1 and m2.unet.aux_head is None and (N_CH_IN_FULL - 63) == N_FCST + N_RADAR
