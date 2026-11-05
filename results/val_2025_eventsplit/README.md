@@ -341,3 +341,41 @@ v12b (same pre-trained U-Net, lr 1e-4 + EMA, best epoch 9): 0.385 / 0.304 / 0.18
 worse everywhere. **Masked-reconstruction pre-training is closed**: it hands the supervised stage features tuned for
 texture, which it then either overwrites (v12) or cannot escape (v12b). A pre-text task tied to motion (future-frame
 prediction) or to contrast between pre-onset and quiet skies would be the next thing to try, not more of this one.
+
+## 4 Nov — v13: road-weather (RWIS) visibility as additional ground truth
+
+Setup. Synoptic Data gave historical access (academic tier). Of the three new sources, only ADOT / NMDOT road-weather
+visibility survived calibration against the ASOS rule (`results/labels/README.md`): 37 stations, 887 positive rows
+in 61 events (+40 % positives), the same quantity the product forecasts, measured on the highway itself. The samples
+now carry those stations (`st_src` = 1) next to the 85 ASOS stations (`st_src` = 0); the validation benchmark is
+273,684 station-times, of which 202,340 are the ASOS rows of every earlier table. The ASOS-only view of v8 is
+unchanged to three decimals (0.508 / 0.383 / 0.210; persistence 0.443 / 0.354 / 0.191), so the numbers below are
+comparable with everything above. v13 = the forecast-channel recipe, v13a = the v8 recipe, both trained on
+ASOS + RWIS labels.
+
+| validation (raw) | best epoch | ASOS-only CSI +15 / +30 / +60 | ASOS onset CSI at 0.5 (POD) | RWIS stratum CSI at 0.5 (POD / FAR), n = 139 | Brier +30 |
+|---|---|---|---|---|---|
+| station persistence | — | 0.443 / 0.354 / 0.191 | 0 | 0.236 / 0.178 / 0.112 (0.65 / 0.52 / 0.35; 0.73 / 0.79 / 0.86) | — |
+| gated v8 (ASOS labels) | 1 | **0.508 / 0.383 / 0.210** | **0.051 / 0.063 / 0.093** (0.30 / 0.36 / 0.42) | **0.267 / 0.225 / 0.155** (0.53 / 0.42 / 0.28; 0.65 / 0.67 / 0.74) | **0.0026** |
+| gated v11f (ASOS, densified + forecast) | 3 | 0.483 / 0.335 / 0.221 | 0.059 / 0.062 / 0.081 (0.30 / 0.51 / 0.62) | 0.238 / 0.181 / 0.088 | 0.0034 |
+| gated v13a (ASOS + RWIS labels, v8 recipe) | 1 | 0.467 / 0.358 / 0.217 | 0.037 / 0.045 / 0.058 (0.35 / 0.42 / 0.46) | 0.188 / 0.143 / 0.071 (0.65 / 0.58 / 0.38; 0.79 / 0.84 / 0.92) | 0.0046 |
+| gated v13 (ASOS + RWIS labels, forecast recipe) | 1 | 0.453 / 0.365 / 0.199 | 0.033 / 0.042 / 0.059 (0.28 / 0.39 / 0.48) | 0.197 / 0.174 / 0.102 | 0.0041 |
+
+**Verdict: the RWIS labels do not help — they hurt, on the road stations included.** v13a against v8, same recipe:
+−0.04 / −0.025 / +0.007 ASOS-only CSI, onset CSI down a third at every lead, Brier almost doubled, and on the RWIS
+stations it was trained on 0.188 / 0.143 / 0.071 against 0.267 / 0.225 / 0.155 for v8, which never saw an RWIS label.
+What the models trained on RWIS learned is to alert more often (RWIS-stratum POD 0.65 at FAR 0.79–0.92): the
+RWIS "dust" rows pull the decision boundary toward low-visibility episodes the satellite cannot see, which is what
+the agreement check hinted at (only 19 of 61 RWIS dust events coincide with any ASOS dust report). The paired
+p-values improve (Holm 0.024 / 0.008) only because the all-station onset stratum now contains the RWIS positives —
+a benchmark artefact, not skill.
+
+Two findings worth keeping. (1) **The ASOS-trained model generalises to the road sensors it never saw**: v8 beats
+station persistence on the RWIS stratum at every lead (0.267 vs 0.236, 0.225 vs 0.178, 0.155 vs 0.112) — the first
+direct evidence of skill on the highway itself, which is where the product issues alerts. (2) The right role for the
+new sources is evaluation and live input, not training labels: `label.train_sources: [asos]` (default from today)
+masks the extended stations' discs and rows in the loss while they stay in the sample for the station channel and
+for per-source scoring; `ext_sources: [rwis]` keeps PM10 and the range sensors out altogether.
+
+Decisions: product unchanged; v8 remains the paper model, v11f the onset-detection variant; RWIS becomes a reported
+stratum ("skill on road-weather stations, zero-shot"). Closed: PM10 labels, range-sensor labels, RWIS labels.

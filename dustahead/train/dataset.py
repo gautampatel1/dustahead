@@ -76,6 +76,13 @@ class DustDataset(Dataset):
         # cannot rely on the station channel alone and keeps using satellite/HRRR cues (robustness to missing reports)
         self.station_dropout = float((cfg or {}).get("train", {}).get("station_dropout", 0.0)) if split == "train" else 0.0
         self.with_forecast = wants_forecast(cfg or {})      # append the HRRR forecast block `xf` (channels.hrrr_fcst)
+        # label sources the LOSS may see (label.train_sources; codes as in scripts/16_extend_labels.py: 0 asos, 1 rwis,
+        # 2 vis_other, 3 pm10). Extended stations stay in the sample for evaluation and for the station channel, but
+        # their discs get weight 0 and their station rows -1 in training when their source is not listed.
+        codes = {"asos": 0, "rwis": 1, "vis_other": 2, "pm10": 3}
+        ts = (cfg or {}).get("label", {}).get("train_sources")
+        self.train_src = None if ts is None else {codes[t] for t in ts}
+        self.radius_cells = 3
 
     def sampler_weights(self, pos_weight: float = 8.0) -> torch.Tensor | None:
         """Per-sample weights for WeightedRandomSampler: samples with any positive count pos_weight x."""
@@ -99,6 +106,18 @@ class DustDataset(Dataset):
         w = s["w"].astype(np.float32)
         ij = s["st_ij"].astype(np.int64)
         sy = s["st_y"].astype(np.int64)
+        if self.train_src is not None and "st_src" in s and (s["st_src"] != 0).any():
+            keep_st = np.isin(s["st_src"], list(self.train_src))
+            if not keep_st.all():
+                yy, xx = np.mgrid[0:y.shape[1], 0:y.shape[2]]
+                drop = np.zeros(y.shape[1:], bool)
+                hold = np.zeros(y.shape[1:], bool)
+                for (i, j), k_ in zip(ij, keep_st):
+                    m = np.hypot(yy - i, xx - j) <= self.radius_cells
+                    (hold if k_ else drop).__ior__(m)
+                cut = (drop & ~hold)[None] & (w >= 1.0)    # discs of excluded sources: unknown again (ADP 0.3 untouched)
+                w[cut] = 0.0
+                sy[~keep_st] = -1                           # their station rows leave the station loss
         gen = genesis_per_station(ij, s["st_now"])          # per-station genesis flag (no dust within 50 km at t0)
         H, W = x.shape[1:]
         if self.crop and (self.crop[0] < H or self.crop[1] < W):

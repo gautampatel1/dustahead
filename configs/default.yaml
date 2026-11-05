@@ -39,7 +39,9 @@ label:
   asos_report_types: [1, 2, 3]   # 5-minute, routine hourly, specials
   station_radius_km: 12  # pixels within this radius of a labelled station share its label
   genesis_radius_km: 50  # "genesis" case = no dust within 50 km at t0
-  ext_sources: [rwis]    # extended ground truth kept as LABELS (events/synoptic.py): road-weather visibility only.
+  ext_sources: [rwis]    # extended stations carried in the samples (events/synoptic.py): road-weather visibility only.
+  train_sources: [asos]  # ... but the LOSS sees only these (v13/v13a, 4 Nov: training on RWIS labels lowered skill
+                         # everywhere, on the RWIS stations included). RWIS stays an evaluation stratum + live input.
                          # pm10 and vis_other were calibrated against co-located ASOS and agree 9 % / 0 % of the
                          # time (results/pm10_calibration.json, 4 Nov) - they measure something else; not labels.
   pm10_ugm3: 250         # PM10 rule (only used when pm10 is in ext_sources)

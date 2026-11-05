@@ -150,3 +150,30 @@ def test_extended_label_rule():
     assert r.loc[("RW1", t + pd.Timedelta(hours=3)), "label"] == 0          # no warning
     assert r.loc[("PM1", t), "label"] == 1 and r.loc[("PM1", t), "severe"] == 1 and r.loc[("PM1", t), "tol_min"] == 30
     assert r.loc[("PM1", t + pd.Timedelta(hours=1)), "label"] == 0
+
+
+def test_train_sources_mask(tmp_path):
+    """label.train_sources: discs and station rows of excluded sources leave the loss; evaluation data untouched."""
+    import copy
+    import numpy as np
+    from dustahead import load_config
+    from dustahead.data.sampler import load_sample, save_sample
+    from dustahead.data.synthetic import make_synthetic_dataset
+    from dustahead.grid import Grid
+    from dustahead.train.dataset import DustDataset
+    cfg = copy.deepcopy(load_config()); cfg["paths"]["samples"] = str(tmp_path / "s")
+    make_synthetic_dataset(cfg["paths"]["samples"], Grid.from_config(cfg), n=4, small=True)
+    f = sorted((tmp_path / "s" / "train").glob("*.npz"))[0]
+    s = load_sample(f)
+    n = len(s["st_ij"]); src = np.zeros(n, np.int8); src[0] = 1           # station 0 becomes a road-weather station
+    s["st_src"] = src; s["st_y"][0] = 1
+    i, j = s["st_ij"][0]; s["y"][:, i, j] = 1; s["w"][:, i, j] = 1.0
+    save_sample(f, s)
+    cfg["label"]["train_sources"] = ["asos"]
+    ds = DustDataset(cfg["paths"]["samples"], "train", cfg=cfg)
+    k = [p.name for p in ds.files].index(f.name)
+    b = ds[k]
+    assert b["st_y"][0].tolist() == [-1, -1, -1] and b["w"][0, i, j] == 0.0
+    cfg["label"]["train_sources"] = ["asos", "rwis"]
+    b2 = DustDataset(cfg["paths"]["samples"], "train", cfg=cfg)[k]
+    assert b2["st_y"][0].tolist() == [1, 1, 1] and b2["w"][0, i, j] == 1.0
