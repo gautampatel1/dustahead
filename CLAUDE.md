@@ -23,7 +23,10 @@ Prototype deadline: **30 Nov 2026**. Target venue after that: workshop paper, th
    2025 haboob reads `-TSRA +DS`). ADP pixels are weak labels (weight 0.3). See `events/stations.py`, `DATA_SOURCES.md`.
 2. **Splits by year:** train 2023–24, val 2025, **test 2026 is run once at the end** (`05_evaluate.py --split test`).
    Never tune on it. GOES-17 (2019–22) may be added to train only.
-3. **Only data available at forecast time** goes into a sample (HRRR analysis ≤ t0, GOES frames ≤ t0).
+3. **Only data available at forecast time** goes into a sample — *available*, not just *valid*, at t0: GOES frames via
+   `goes.available_file` (file created + latency ≤ t), HRRR analysis via `hrrr.analysis_run` (published ~50 min late),
+   station channel via `stations.station_now` (reports ≤ t0, no warning check; the same function feeds training and live).
+   Targets may look ahead; inputs never do.
 4. **Primary metric:** genesis-stratified station CSI at +30 and +60 min (genesis = no dust within 50 km at t0).
    Report event-bootstrap CIs (B=1000) and Holm-corrected p-values vs every baseline.
 5. Traffic (AADT) is for impact scoring only — never a model input.
@@ -58,12 +61,20 @@ streamlit run dustahead/app/dashboard.py -- --ckpt runs/latest/best.pt --demo
 - PC: venv `C:\DustAhead\.venv`, RTX 5060 Ti, ~150 s/epoch. Job runner: drop a .bat into `jobs\q2\` (logs in `logs\jobs\`).
   The remote Linux shell on the PC: 3-minute commands, checks and fixes only.
 - Next: slides/doc update to real numbers, dashboard walkthrough, 2026 test once at the end (05_evaluate --split test).
+- Branch `fix/causal-inputs` (Nov 2026): every result above was trained on samples whose station channel was the t0
+  LABEL (needs a DS warning within ±60 min, so it used warnings issued after t0), whose t0 GOES frame could start after
+  t0, and whose HRRR analysis was not yet published at t0. Live `station_now_live` also had clear/no-report swapped.
+  `scripts/20_causal_station_now.py` fixes the station channel in place (`--dry-run` measures the change); GOES/HRRR
+  timing needs `03_build_samples.py` again. Retrain v8 on fixed samples before quoting numbers.
 
 ## Known gaps / TODO (Phase 1)
 - `hrrr.dcape_proxy` is a proxy (HRRR has no DCAPE). Say so in the paper.
 - `static.build_all` fetches 3DEP, SoilGrids, CDL; NLCD must be downloaded manually. Verify each endpoint on first run.
 - `app/predict.I10` waypoints are coarse; replace with OSM geometry + FHWA HPMS AADT in Phase 2.
-- GOES file timing: CONUS scans every 5 min; `nearest_file` tolerates 6 min. Flag any sample with a gap.
+- GOES file timing: CONUS scans every 5 min; input frames use `available_file` (newest created ≤ t − 2 min, at most
+  15 min old), targets use `nearest_file` (±6 min). Flag any sample with a gap.
+- Radar (`data/radar.py`): the t0 frame is the composite valid AT t0, published a few minutes later - same issue as the
+  old GOES rule; not yet fixed.
 - GOES/GLM are read remotely (fsspec + h5netcdf) and only regridded frames are cached; HRRR via Herbie needs
   eccodes/cfgrib (on Windows install them from conda-forge).
 - Data-build order: 00_check_sources → 01 → 02 → 03 --limit 2 (inspect) → 03 full (--workers 4–6, overnight).

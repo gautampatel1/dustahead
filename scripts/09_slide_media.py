@@ -40,7 +40,7 @@ def strip(E, s, r, out, lead_idx=1):
 
     def road(ax):
         ax.plot(lon10, lat10, color="white", lw=1.6, alpha=0.9)
-        ax.scatter(lons[now == -1], lats[now == -1], s=8, c="#cfc3b2", alpha=0.7, zorder=4)
+        ax.scatter(lons[now == 0], lats[now == 0], s=8, c="#cfc3b2", alpha=0.7, zorder=4)
         ax.scatter(lons[now == 1], lats[now == 1], s=42, c="#ff3b3b", edgecolors="white", lw=0.8, zorder=5)
         ax.set_xlim(ext[0], ext[1]); ax.set_ylim(ext[2], ext[3]); ax.set_axis_off()
 

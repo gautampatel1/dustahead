@@ -61,7 +61,7 @@ def main():
 
         def road(ax):
             ax.plot(lon10, lat10, color="white", lw=1.5, alpha=0.9)
-            ax.scatter(lons[now == -1], lats[now == -1], s=6, c="lightgrey", alpha=0.6, zorder=4)
+            ax.scatter(lons[now == 0], lats[now == 0], s=6, c="lightgrey", alpha=0.6, zorder=4)
             ax.scatter(lons[now == 1], lats[now == 1], s=25, c="red", edgecolors="white", lw=0.6, zorder=5)
             ax.set_axis_off()
 
