@@ -379,3 +379,49 @@ for per-source scoring; `ext_sources: [rwis]` keeps PM10 and the range sensors o
 
 Decisions: product unchanged; v8 remains the paper model, v11f the onset-detection variant; RWIS becomes a reported
 stratum ("skill on road-weather stations, zero-shot"). Closed: PM10 labels, range-sensor labels, RWIS labels.
+
+## 5–7 Nov — v14: radar inputs and a dense satellite head (`configs/radar_v14.yaml`, `aux_v14a.yaml`, `radar_only_v14b.yaml`)
+
+Two ingredients borrowed from the Saharan dust systems (DustNet, AI-GAMFS), tested together and apart, on top of the
+v11f recipe (densified onset windows + HRRR forecast block):
+- **radar**: NEXRAD composite reflectivity (IEM N0Q mosaic) at t0−20, t0−10, t0, maximum dBZ per 4-km cell so the
+  outflow "fine line" survives (`data/radar.py`, `scripts/19_add_radar.py`; 28,088 frames, 425 of 27,251 samples
+  with a missing frame filled with zeros);
+- **dense head**: a second output predicting the painted satellite + station target at every labelled pixel at full
+  weight (`loss.w_aux: 1`), the "learn from a dense satellite product" idea.
+
+Same validation half and ASOS-only view as every earlier table (raw probabilities; onset at threshold 0.5):
+
+| model | best epoch | CSI +15 / +30 / +60 | onset CSI +15 / +30 / +60 | onset POD / FAR at +60 | Brier +30 | p vs persist. +30 (Holm) |
+|---|---|---|---|---|---|---|
+| v8 (paper model) | 1 | **0.508** / 0.383 / 0.210 | 0.051 / 0.063 / 0.093 | 0.42 / 0.89 | 0.0026 | 0.014 (0.056) |
+| v11f (densified + forecast) | 3 | 0.483 / 0.335 / 0.221 | 0.059 / 0.062 / 0.081 | 0.62 / 0.91 | 0.0034 | 0.012 (0.048) |
+| v14a = v11f recipe + dense head only | 1 | 0.510 / 0.381 / 0.213 | 0.024 / 0.051 / 0.051 | 0.17 / 0.93 | 0.0024 | 0.030 (0.12) |
+| v14 = + radar + dense head | 8 | 0.497 / **0.394** / **0.235** | 0.061 / 0.070 / 0.100 | 0.43 / 0.89 | 0.0024 | 0.014 (0.056) |
+| **v14b = + radar only** | 12 | 0.493 / 0.384 / 0.229 | **0.088 / 0.103 / 0.142** | 0.42 / **0.82** | **0.0020** | **0.004 (0.016)** |
+
+**Attribution: the gain is the radar; the dense head is neutral alone and harmful in combination.** v14a (head only)
+behaves like v8 — peaks at epoch 1, onset worse — so a dense satellite target adds nothing the station-centred crops
+did not already give. Radar alone (v14b) lifts onset CSI by **+73 % / +63 % / +53 %** over v8 at the three leads,
+the largest single-step onset gain of the project, *and* lowers the onset false-alarm ratio at +60 from 0.89 to
+0.82 — the first time a detection gain was not paid for in false alarms. It is the first single-fold model with a
+Holm-corrected p below 0.02, keeps all-station CSI within ±0.02 of v8 (−0.015 at +15, +0.001 at +30, +0.019 at +60),
+trains to epoch 12, and has the best Brier score of any run. Adding the dense head to radar (v14) gives back about
+a third of the onset gain. Physically this is what the haboob literature predicts: the outflow boundary that
+precedes the dust is a radar feature (a thin line of weak echo) that no satellite channel resolves.
+
+Caveats, in order of importance:
+1. **Radar latency.** The mosaic frame stamped t0 is published a few minutes after t0; v14b used it. A forecast issued
+   at t0 has only t0−10 and t0−20. `configs/radar_lag_v14c.yaml` (`channels.radar_latency_frames: 1`) retrains with
+   the t0 frame blanked in training *and* evaluation; v14b's gain counts only if v14c keeps it. Running 7 Nov.
+2. **Road-weather stratum at +60.** On the 37 RWIS stations (never trained on), best-threshold CSI is
+   0.263 / 0.230 / 0.075 for v14b vs 0.296 / 0.245 / 0.155 for v8 (v14: 0.270 / 0.143 / 0.043). The radar models
+   lose skill on the highway sensors at the longest lead while gaining it at the airports. 139 positives per lead,
+   so the interval is wide, but the sign is consistent across v14 and v14b. Not yet understood.
+3. Single fold, 83–130 onset positives per lead; the pooled two-fold test that settled v8 has not been run for v14b.
+4. The ensemble check failed on 5 Nov because the v4 members had been scored on the pre-RWIS benchmark (rows do not
+   line up); they are being re-scored on the current benchmark (job 90) and the ensembles re-run.
+
+Decision pending v14c: if the latency-honest run keeps most of the onset gain, it replaces v8 as the paper model
+(with v8 kept as the "no radar" reference row) and the product ensemble is re-evaluated with it; if it does not,
+v14b is reported as an upper bound and v8 stays. `loss.w_aux` stays 0 by default; the dense head is closed.
