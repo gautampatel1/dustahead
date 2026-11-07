@@ -1,0 +1,10 @@
+# Experiment config (v14c): v14b (radar inputs, HRRR forecast block, densified onset windows) with the NEWEST radar
+# frame (t0) blanked in training and evaluation. Why: the IEM mosaic stamped t0 is published a few minutes after
+# t0, so a live forecast issued at t0 only has t0-10 and t0-20. v14b used the t0 frame; this run measures how much
+# of its gain survives an operationally honest input. If it holds, v14c (not v14b) is the paper candidate.
+channels:
+  hrrr_fcst: 6
+  radar: 3
+  radar_latency_frames: 1
+model:
+  gate_channels: [static, physics]

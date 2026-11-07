@@ -177,3 +177,16 @@ def test_train_sources_mask(tmp_path):
     cfg["label"]["train_sources"] = ["asos", "rwis"]
     b2 = DustDataset(cfg["paths"]["samples"], "train", cfg=cfg)[k]
     assert b2["st_y"][0].tolist() == [1, 1, 1] and b2["w"][0, i, j] == 1.0
+
+
+def test_radar_latency_blanks_newest_frames():
+    import numpy as np
+    from dustahead.data.sampler import N_CH_IN, N_FCST, N_RADAR, input_stack, radar_drop_newest
+    ny, nx = 8, 10
+    s = dict(x=np.zeros((62, ny, nx), np.float16), st_ij=np.zeros((0, 2), np.int16), st_now=np.zeros(0, np.int8),
+             xr=np.ones((N_RADAR, ny, nx), np.float16))
+    full = input_stack(s, None, False, True, 0)
+    lag = input_stack(s, None, False, True, radar_drop_newest({"channels": {"radar_latency_frames": 1}}))
+    r0 = N_CH_IN + N_FCST
+    assert full.shape == lag.shape and full[r0:].min() == 1.0
+    assert lag[r0:r0 + N_RADAR - 1].min() == 1.0 and lag[r0 + N_RADAR - 1].max() == 0.0

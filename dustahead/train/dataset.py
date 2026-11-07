@@ -17,7 +17,7 @@ import pandas as pd
 import torch
 from torch.utils.data import Dataset
 
-from ..data.sampler import genesis_per_station, input_stack, load_sample, wants_forecast, wants_radar
+from ..data.sampler import genesis_per_station, input_stack, load_sample, radar_drop_newest, wants_forecast, wants_radar
 
 MAX_STATIONS = 256      # ASOS (~85) + extended Synoptic stations (road-weather, PM10, other visibility)
 
@@ -77,6 +77,7 @@ class DustDataset(Dataset):
         self.station_dropout = float((cfg or {}).get("train", {}).get("station_dropout", 0.0)) if split == "train" else 0.0
         self.with_forecast = wants_forecast(cfg or {})      # append the HRRR forecast block `xf` (channels.hrrr_fcst)
         self.with_radar = wants_radar(cfg or {})            # append the radar block `xr` (channels.radar)
+        self.radar_drop = radar_drop_newest(cfg or {})      # blank the newest radar frame(s): latency test
         # label sources the LOSS may see (label.train_sources; codes as in scripts/16_extend_labels.py: 0 asos, 1 rwis,
         # 2 vis_other, 3 pm10). Extended stations stay in the sample for evaluation and for the station channel, but
         # their discs get weight 0 and their station rows -1 in training when their source is not listed.
@@ -102,7 +103,7 @@ class DustDataset(Dataset):
         st_now = s["st_now"].copy()
         if self.station_dropout > 0:
             st_now[self.rng.random(len(st_now)) < self.station_dropout] = -1       # -1 = no report
-        x = input_stack(s, st_now, self.with_forecast, self.with_radar)   # x (62) + station channel (+ forecast, radar)
+        x = input_stack(s, st_now, self.with_forecast, self.with_radar, self.radar_drop)   # x (62) + station channel (+ forecast, radar)
         y = s["y"].astype(np.float32)
         w = s["w"].astype(np.float32)
         ij = s["st_ij"].astype(np.int64)
