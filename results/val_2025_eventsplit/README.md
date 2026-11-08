@@ -437,13 +437,36 @@ signal is fast: an outflow boundary moves 10–20 m/s, 6–12 km (two to three g
 ten minutes old puts the gust front in the wrong cells, and the satellite and station channels already carry what
 older radar knows. Radar here is a *now-observation* of the gust front, not a precursor with lead time to spare.
 
-That makes freshness the whole question. The IEM mosaic publishes roughly 5 min after valid time; MRMS about 2 min;
-single-site Level-II data from the Phoenix and Tucson radars within 1–2 min on AWS. **v14d** stores the frames a live
-system would actually have from IEM (t0−25, −15, **−5**; `scripts/19_add_radar.py --offsets 25 15 5 --key xr_lag5`,
-`configs/radar_lag5_v14d.yaml`) and retrains; it decides whether radar enters the paper model.
+**v14d — the operational test (7–8 Nov): with the 5-minute-old frame a live system has, the gain is gone too.**
+Frames at t0−25, −15, −5 (`xr_lag5`; IEM publishes the mosaic about 5 min after valid time), same recipe:
 
-Until then: v8 stays the paper model and the product is unchanged. v14b is reported as the upper bound of what
-radar can add with zero latency; v14c as the 10-minute-latency negative. The dense head (`loss.w_aux`) is closed.
+| model | radar frames | best epoch | CSI +15 / +30 / +60 | onset CSI +15 / +30 / +60 | onset FAR +60 | Holm p | RWIS best-thr CSI |
+|---|---|---|---|---|---|---|---|
+| v8 | none | 1 | **0.508 / 0.383** / 0.210 | 0.051 / 0.063 / 0.093 | 0.89 | 0.056 | 0.296 / 0.245 / 0.155 |
+| v14b | t0−20, −10, 0 | 12 | 0.493 / 0.384 / **0.229** | **0.088 / 0.103 / 0.142** | **0.82** | **0.016** | 0.263 / 0.230 / 0.075 |
+| v14d | t0−25, −15, −5 | 1 | 0.493 / 0.361 / 0.200 | 0.029 / 0.050 / 0.065 | 0.92 | 0.056 | 0.287 / 0.231 / 0.145 |
+| v14c | t0−20, −10 | 1 | 0.498 / 0.373 / 0.187 | 0.031 / 0.046 / 0.051 | 0.94 | 0.032 | 0.299 / 0.256 / 0.141 |
+
+**Verdict: radar is closed as an input for this system.** Every radar model whose newest frame is five or more minutes
+old performs at or below v8 and trains like v8 (peak at epoch 1); only the frame stamped t0 itself carries the gain.
+
+**And v14b itself is not reported as a result.** A five-minute shift in the newest frame turns a +53–73 % onset gain
+into a loss. Gust-front motion is about one grid cell in five minutes, which the U-Net tolerates everywhere else,
+so a jump that large is more than the physics we can name explains. The likeliest alternative is a time-alignment
+artefact: the IEM WMS-T service resolves a requested TIME to a mosaic frame by a rule we did not verify (nearest
+versus preceding frame; scan start versus scan end), so "t0" may include radar scans completed after t0 — data the
+forecast would not have, and dust walls already visible to radar but not yet to any station, which is exactly the
+onset stratum. Until that is checked against single-site Level-II volumes with known scan times
+(AWS `noaa-nexrad-level2`, KIWA / KEMX), v14b is an *unverified upper bound*, quoted only with this caveat, and
+nothing radar-based enters the paper model or the product.
+
+Ensembles (full benchmark incl. the road-weather stratum, best overall threshold): with v8 0.325 / 0.261 / 0.184;
+with v14b 0.334 / 0.295 / 0.190; with v14d 0.353 / 0.299 / 0.203. The v14d ensemble's lift comes from the road-weather
+rows, where v14d is close to v8 and the members disagree usefully; on the ASOS rows that every model table above uses,
+v14d is below v8, so the product ensemble is not changed on this evidence.
+
+Code kept for the record: `channels.radar`, `radar_key`, `radar_latency_frames` (default off), `data/radar.py`,
+`scripts/19_add_radar.py --offsets/--key`. Paper model: **v8**. Onset-detection variant: **v11f**. Product: unchanged.
 
 Ensembles on the current benchmark (all 273,684 station-times including the road-weather stratum, best overall
 threshold; not comparable to the ASOS-only rows above): max(unet_all v4, gated v4, v8) 0.325 / 0.261 / 0.184;
