@@ -422,6 +422,29 @@ Caveats, in order of importance:
 4. The ensemble check failed on 5 Nov because the v4 members had been scored on the pre-RWIS benchmark (rows do not
    line up); they are being re-scored on the current benchmark (job 90) and the ensembles re-run.
 
-Decision pending v14c: if the latency-honest run keeps most of the onset gain, it replaces v8 as the paper model
-(with v8 kept as the "no radar" reference row) and the product ensemble is re-evaluated with it; if it does not,
-v14b is reported as an upper bound and v8 stays. `loss.w_aux` stays 0 by default; the dense head is closed.
+**v14c — the latency test (7 Nov): the radar gain does not survive a 10-minute delay.** Blanking the t0 frame in
+training and evaluation (`configs/radar_lag_v14c.yaml`), so the model sees only t0−10 and t0−20:
+
+| model | best epoch | CSI +15 / +30 / +60 | onset CSI +15 / +30 / +60 | onset FAR +60 | p vs persist. (Holm) | RWIS best-thr CSI |
+|---|---|---|---|---|---|---|
+| v8 (no radar) | 1 | 0.508 / 0.383 / 0.210 | 0.051 / 0.063 / 0.093 | 0.89 | 0.014 (0.056) | 0.296 / 0.245 / 0.155 |
+| v14b (radar t0−20, −10, **0**) | 12 | 0.493 / 0.384 / 0.229 | **0.088 / 0.103 / 0.142** | **0.82** | 0.004 (0.016) | 0.263 / 0.230 / 0.075 |
+| v14c (radar t0−20, −10 only) | 1 | 0.498 / 0.373 / 0.187 | 0.031 / 0.046 / 0.051 | 0.94 | 0.008 (0.032) | 0.299 / 0.256 / 0.141 |
+
+Every part of v14b's gain sits in the newest frame: without it, onset skill falls *below* v8, the training curve
+reverts to the one-epoch peak, and (consistently) the road-weather regression at +60 disappears too. Physically the
+signal is fast: an outflow boundary moves 10–20 m/s, 6–12 km (two to three grid cells) in ten minutes, so a frame
+ten minutes old puts the gust front in the wrong cells, and the satellite and station channels already carry what
+older radar knows. Radar here is a *now-observation* of the gust front, not a precursor with lead time to spare.
+
+That makes freshness the whole question. The IEM mosaic publishes roughly 5 min after valid time; MRMS about 2 min;
+single-site Level-II data from the Phoenix and Tucson radars within 1–2 min on AWS. **v14d** stores the frames a live
+system would actually have from IEM (t0−25, −15, **−5**; `scripts/19_add_radar.py --offsets 25 15 5 --key xr_lag5`,
+`configs/radar_lag5_v14d.yaml`) and retrains; it decides whether radar enters the paper model.
+
+Until then: v8 stays the paper model and the product is unchanged. v14b is reported as the upper bound of what
+radar can add with zero latency; v14c as the 10-minute-latency negative. The dense head (`loss.w_aux`) is closed.
+
+Ensembles on the current benchmark (all 273,684 station-times including the road-weather stratum, best overall
+threshold; not comparable to the ASOS-only rows above): max(unet_all v4, gated v4, v8) 0.325 / 0.261 / 0.184;
+with v14b instead of v8 0.334 / 0.295 / 0.190 (`val_ensemble_v4v4v8_rwisbench.json`, `val_ensemble_v4v4v14b.json`).
