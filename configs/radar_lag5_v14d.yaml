@@ -1,0 +1,10 @@
+# Experiment config (v14d): v14b with the radar frames an operational system actually has - t0-25, t0-15, t0-5
+# (`xr_lag5`, scripts/19_add_radar.py --offsets 25 15 5). Why: v14b (t0-20/-10/0) lifted onset CSI by 53-73 %, but v14c
+# (t0 frame blanked, i.e. 10-min latency) lost all of it; the IEM mosaic publishes about 5 min after valid time, so
+# t0-5 is the honest freshest frame. This run decides whether radar is usable in the paper model.
+channels:
+  hrrr_fcst: 6
+  radar: 3
+  radar_key: xr_lag5
+model:
+  gate_channels: [static, physics]

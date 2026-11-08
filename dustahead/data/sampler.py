@@ -71,7 +71,7 @@ def assemble_radar(stack: np.ndarray) -> np.ndarray:
 
 
 def input_stack(sample: dict, st_now: np.ndarray | None = None, with_forecast: bool = False,
-                with_radar: bool = False, radar_drop_newest: int = 0) -> np.ndarray:
+                with_radar: bool = False, radar_drop_newest: int = 0, radar_key: str = "xr") -> np.ndarray:
     """The model input for one stored sample: x (62) + painted station channel (+ the forecast block `xf`
     + the radar block `xr`). Blocks sit at fixed channel slots (CH), so when the radar block is wanted the forecast
     slot is filled with zeros if the model does not use it. `st_now` overrides the stored reports (station dropout,
@@ -82,7 +82,7 @@ def input_stack(sample: dict, st_now: np.ndarray | None = None, with_forecast: b
     if with_forecast or with_radar:
         parts.append(_block(sample, "xf", N_FCST, x.shape[1:], warn=with_forecast))
     if with_radar:
-        xr = _block(sample, "xr", N_RADAR, x.shape[1:], warn=True)
+        xr = _block(sample, radar_key, N_RADAR, x.shape[1:], warn=True)
         if radar_drop_newest:          # latency test: the newest frame(s) are not yet in the mosaic at t0
             xr = xr.copy()
             xr[N_RADAR - radar_drop_newest:] = 0.0
@@ -108,6 +108,12 @@ def wants_forecast(cfg: dict) -> bool:
 
 def wants_radar(cfg: dict) -> bool:
     return bool(cfg.get("channels", {}).get("radar", 0))
+
+
+def radar_key(cfg: dict) -> str:
+    """channels.radar_key: which stored radar block to use. `xr` = frames at t0-20/-10/0 (19_add_radar.py default);
+    `xr_lag5` = t0-25/-15/-5, i.e. what a live system has with the IEM mosaic's ~5-min publication delay."""
+    return str(cfg.get("channels", {}).get("radar_key", "xr"))
 
 
 def radar_drop_newest(cfg: dict) -> int:
