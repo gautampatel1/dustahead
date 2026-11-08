@@ -467,7 +467,3 @@ v14d is below v8, so the product ensemble is not changed on this evidence.
 
 Code kept for the record: `channels.radar`, `radar_key`, `radar_latency_frames` (default off), `data/radar.py`,
 `scripts/19_add_radar.py --offsets/--key`. Paper model: **v8**. Onset-detection variant: **v11f**. Product: unchanged.
-
-Ensembles on the current benchmark (all 273,684 station-times including the road-weather stratum, best overall
-threshold; not comparable to the ASOS-only rows above): max(unet_all v4, gated v4, v8) 0.325 / 0.261 / 0.184;
-with v14b instead of v8 0.334 / 0.295 / 0.190 (`val_ensemble_v4v4v8_rwisbench.json`, `val_ensemble_v4v4v14b.json`).
