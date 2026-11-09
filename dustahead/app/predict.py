@@ -142,7 +142,8 @@ class DustAhead:
             members[mname] = pm
             probs = pm if probs is None else np.maximum(probs, pm)
             if h is not None:                       # gate shown = most permissive member (max), consistent with the max ensemble
-                g = torch.sigmoid(h)[0, 0].float().cpu().numpy()
+                fl = getattr(model, "gate_floor", 0.0)      # the gate the forecast actually used (model.gate_floor)
+                g = (fl + (1 - fl) * torch.sigmoid(h))[0, 0].float().cpu().numpy()
                 gate = g if gate is None else np.maximum(gate, g)
         if gate is None:
             gate = np.ones(probs.shape[1:], np.float32)

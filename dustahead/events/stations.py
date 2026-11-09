@@ -200,6 +200,38 @@ def station_targets(labels: pd.DataFrame, stations: pd.DataFrame, t0: pd.Timesta
     return pd.DataFrame(rows)
 
 
+def station_wind_targets(obs: pd.DataFrame, sids, t0, leads_min, cfg: dict, tol_min: int = 5) -> np.ndarray:
+    """(S, L) int8 OUTFLOW targets for the sky branch: 1 when the report nearest t0 + lead (within ±tol_min) has
+    sustained wind or gust >= label.outflow_kt, 0 when it is below, -1 when there is no wind reading (or the table has
+    no wind columns, e.g. the extended Synoptic stations). ASOS sknt is the 2-min mean wind in knots, gust the peak.
+    Why a wind target: a haboob needs an outflow AND erodible ground; dust reports say both happened, wind reports
+    say the outflow did - on every gusty afternoon, dust or not - so the sky factor sigmoid(z) can be taught
+    P(outflow arrives) directly. These are targets, so reports after t0 are fine."""
+    out = np.full((len(sids), len(leads_min)), -1, np.int8)
+    if obs.empty or "sknt" not in obs:
+        return out
+    t0 = pd.Timestamp(t0)
+    t0 = (t0.tz_convert("UTC") if t0.tzinfo else t0.tz_localize("UTC")).tz_localize(None)
+    sknt = pd.to_numeric(obs["sknt"], errors="coerce").to_numpy(float)
+    gust = pd.to_numeric(obs["gust"], errors="coerce").to_numpy(float) if "gust" in obs else np.full(len(obs), np.nan)
+    wind = np.fmax(sknt, gust)                    # NaN only when both are missing
+    df = pd.DataFrame(dict(station=obs["station"].astype(str).to_numpy(), wind=wind,
+                           valid=pd.to_datetime(obs["valid"], utc=True).dt.tz_localize(None).to_numpy()))
+    df = df[np.isfinite(df.wind)]
+    by = {k: g for k, g in df.groupby("station")}
+    thr, tol = float(cfg["label"].get("outflow_kt", 30)), pd.Timedelta(minutes=tol_min)
+    for k, sid in enumerate(sids):
+        g = by.get(str(sid))
+        if g is None:
+            continue
+        for l, lead in enumerate(leads_min):
+            gap = (g.valid - (t0 + pd.Timedelta(minutes=lead))).abs()
+            n = gap.idxmin()
+            if gap[n] <= tol:
+                out[k, l] = int(g.wind[n] >= thr)
+    return out
+
+
 def save_labels(df: pd.DataFrame, path: str | Path) -> None:
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     df.to_parquet(path) if str(path).endswith(".parquet") else df.to_csv(path, index=False)

@@ -1,0 +1,12 @@
+# Experiment config (v15b): v15a + the sky-branch outflow loss. sigmoid(z) is trained ON ITS OWN against "wind or gust
+# >= 30 kt at the station at t0 + lead" (st_wind), so the factorisation means P(outflow arrives) x P(ground emits)
+# instead of a sky branch that says 1.0 somewhere in every sample. Needs scripts/21_add_wind_targets.py on the samples
+# (samples without st_wind are masked out of this term, so forgetting it silently turns v15b into v15a).
+channels:
+  hrrr_fcst: 6
+model:
+  gate_channels: [static, physics]
+  gate_floor: 0.02
+loss:
+  log_space: true
+  w_sky: 0.5

@@ -39,6 +39,7 @@ label:
   asos_report_types: [1, 2, 3]   # 5-minute, routine hourly, specials
   station_radius_km: 12  # pixels within this radius of a labelled station share its label
   genesis_radius_km: 50  # "genesis" case = no dust within 50 km at t0
+  outflow_kt: 30         # sky-branch target st_wind: wind or gust >= 30 kt at the station at t0 + lead (loss.w_sky)
   ext_sources: [rwis]    # extended stations carried in the samples (events/synoptic.py): road-weather visibility only.
   train_sources: [asos]  # ... but the LOSS sees only these (v13/v13a, 4 Nov: training on RWIS labels lowered skill
                          # everywhere, on the RWIS stations included). RWIS stays an evaluation stratum + live input.
@@ -68,6 +69,7 @@ model:
   base_channels: 32
   depth: 4
   gate_bias_init: 2.2    # sigmoid(2.2) ~ 0.90: gate starts open
+  gate_floor: 0.0        # gate = floor + (1 - floor) * sigmoid(h): > 0 keeps the sky branch trainable (v15 uses 0.02)
   gate_channels: [hrrr, static, physics]
 
 train:
@@ -93,6 +95,9 @@ loss:
   w_station: 3.0          # stations are the only true ground truth
   station_pos_weight: 10.0
   station_genesis_weight: 0.0   # extra x(1+w) on positives at genesis stations (no dust within 50 km at t0); v5 runs use 3
+  log_space: false        # focal + station BCE from log P = logsigmoid(z) + log g(h): no 1e-6 clamp, a shut gate keeps its gradient
+  w_sky: 0.0              # BCE of the sky branch sigmoid(z) alone against st_wind (gated model; needs scripts/21_add_wind_targets.py)
+  sky_pos_weight: 1.0
 
 eval:
   threshold: 0.5

@@ -199,7 +199,7 @@ def paint_targets(grid: Grid, st_rows: pd.DataFrame, leads, radius_km: float, ad
 def build_sample(t0: dt.datetime, grid: Grid, cfg: dict, static: np.ndarray, labels: pd.DataFrame,
                  stations: pd.DataFrame, use_adp: bool = True) -> dict | None:
     """Fetch everything for one t0 and return the sample dict, or None if satellite data is missing."""
-    from ..events.stations import station_targets
+    from ..events.stations import station_targets, station_wind_targets
     T, S, P = cfg["time"], cfg["satellite"], cfg["paths"]
     hrrr.set_cache(P["cache"])
     times = goes.frame_times(t0, T["history_frames"], T["step_min"])
@@ -229,6 +229,7 @@ def build_sample(t0: dt.datetime, grid: Grid, cfg: dict, static: np.ndarray, lab
     genesis = not bool((dust_now == 1).any())
     return dict(x=x.astype(np.float16), y=y.astype(np.uint8), w=w.astype(np.float16),
                 st_ij=st[["i", "j"]].values.astype(np.int16),
+                st_wind=station_wind_targets(labels, st.station.values, t0, T["leads_min"], cfg),   # sky-branch target
                 st_y=st[[f"y_{l}" for l in T["leads_min"]]].values.astype(np.int8),
                 st_now=dust_now.astype(np.int8), t0=np.datetime64(t0.replace(tzinfo=None)),
                 genesis=np.array(genesis), dust_rgb=goes.dust_rgb(sat[-1]))
