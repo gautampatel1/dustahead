@@ -467,3 +467,20 @@ v14d is below v8, so the product ensemble is not changed on this evidence.
 
 Code kept for the record: `channels.radar`, `radar_key`, `radar_latency_frames` (default off), `data/radar.py`,
 `scripts/19_add_radar.py --offsets/--key`. Paper model: **v8**. Onset-detection variant: **v11f**. Product: unchanged.
+
+## 9 Nov — final models on all data before the test year (pre-registered before training)
+
+Decision (Gautam, 9 Nov): train the final models on **2018–2024 plus every 2025 event** — the 2025 validation half
+goes into training. 2025 was a record dust year (Dust Storm Warnings: El Paso 147, Albuquerque 56, Midland 45,
+Tucson 34), and half of it was being held back. With no validation half left, nothing can be chosen on data:
+
+- **Recipes and lengths are fixed from validated runs.** `configs/final_v8full.yaml` = v8 recipe, 2 epochs (v8's best
+  epoch was 1); `configs/final_v11ffull.yaml` = v11f recipe, 4 epochs (best epoch 3). Same cosine schedule over 50
+  epochs, stopped there (`train.fixed_epochs`); the last weights are kept (`splits.val_fold: none`).
+- **v8full is the final paper model and v11ffull the onset variant, whatever they score on 2026.** That score is a
+  disclosed *second look* at the sealed test year (the first was v8 on 28 Oct, `results/test_2026/`), and it decides
+  nothing about these two models.
+- Scores on 2026 are reported **raw** (no calibration): the calibration in `05_evaluate.py` is fitted on the 2025
+  validation half, which these models trained on.
+- Whether the product ensemble switches to the full-data members is a separate decision, taken after the 2026
+  numbers are seen and reported as such.

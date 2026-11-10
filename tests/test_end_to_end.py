@@ -96,3 +96,22 @@ def test_finetune_ema_fold_and_policy(tmp_path):
     assert r.returncode == 0, r.stderr
     ens = json.loads((tmp_path / "ens.json").read_text())
     assert "ensemble+persistence@15" in ens["models"] and "station_persistence" in ens["models"]
+
+
+def test_final_training_without_validation(tmp_path):
+    """splits.val_fold none + train.fixed_epochs: all 2025 events train, no validation, last epoch kept."""
+    import copy
+    import json
+    cfg = copy.deepcopy(load_config())
+    cfg["paths"].update(samples=str(tmp_path / "samples"), runs=str(tmp_path / "runs"), static=str(tmp_path / "static"))
+    cfg["train"].update(batch_size=2, num_workers=0, crop=[48, 64], amp=False, fixed_epochs=2)
+    cfg["model"].update(base_channels=8, depth=2)
+    cfg["splits"]["val_fold"] = "none"
+    make_synthetic_dataset(cfg["paths"]["samples"], Grid.from_config(cfg), n=6, small=True)
+    from dustahead.train.dataset import DustDataset
+    run_dir = train(cfg, "gated_unet", tmp_path / "runs" / "full", device="cpu")
+    log = json.loads((run_dir / "log.json").read_text())
+    ck = torch.load(run_dir / "best.pt", weights_only=False)
+    assert len(log) == 2 and ck["epoch"] == 1
+    if len(DustDataset(cfg["paths"]["samples"], "val", cfg=cfg)) == 0:
+        assert ck["val"] is None

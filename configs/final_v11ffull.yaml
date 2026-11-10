@@ -1,0 +1,11 @@
+# FINAL onset-detection variant (v11ffull): the v11f recipe (densified onset windows + HRRR forecast block) on all
+# data before the test year, fixed at v11f's validated length (best epoch 3 -> 4 epochs). Pre-registered with
+# final_v8full.yaml: reported on 2026 as the onset variant whatever its score.
+channels:
+  hrrr_fcst: 6
+model:
+  gate_channels: [static, physics]
+splits:
+  val_fold: none
+train:
+  fixed_epochs: 4

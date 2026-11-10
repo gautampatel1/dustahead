@@ -132,6 +132,14 @@ def train(cfg: dict, model_name: str | None = None, run_dir: str | Path | None =
     opt = torch.optim.AdamW(model.parameters(), lr=T["lr"], weight_decay=T["weight_decay"])
     epochs = max_epochs or T["epochs"]
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, epochs)
+    # train.fixed_epochs: stop after exactly N epochs and keep the LAST weights (no early stopping, no validation
+    # needed). The cosine schedule still spans train.epochs, so N epochs here follow the same learning-rate path
+    # as the first N epochs of the validated run whose best epoch was N-1.
+    fixed = T.get("fixed_epochs")
+    if fixed:
+        epochs_run = int(fixed)
+    else:
+        epochs_run = epochs
     # bf16 has fp32's exponent range: no overflow -> no inf/NaN from the fp16 path, and no GradScaler needed
     amp_dtype = torch.bfloat16 if (device == "cuda" and torch.cuda.is_bf16_supported()) else torch.float16
     use_scaler = T["amp"] and device == "cuda" and amp_dtype == torch.float16
@@ -140,7 +148,7 @@ def train(cfg: dict, model_name: str | None = None, run_dir: str | Path | None =
     n_skipped = 0
 
     best, bad, log = -1.0, 0, []
-    for ep in range(epochs):
+    for ep in range(epochs_run):
         t_ep = time.time()
         model.train()
         tot, n = 0.0, 0
@@ -180,6 +188,14 @@ def train(cfg: dict, model_name: str | None = None, run_dir: str | Path | None =
                     ema.model.load_state_dict(sd)
             for g in opt.param_groups:
                 g["lr"] *= 0.5
+        if len(va) == 0:                     # no validation split (val_fold none): log the loss, keep the last weights
+            row = dict(epoch=ep, train_loss=tot / max(n, 1), lr=sched.get_last_lr()[0], ema=ema is not None)
+            log.append(row)
+            print(f"ep {ep:03d} loss {row['train_loss']:.4f} (no validation split)  ({time.time() - t_ep:.0f}s)", flush=True)
+            torch.save(dict(model=eval_model.state_dict(), cfg=cfg, name=name, epoch=ep, val=None,
+                            ema=ema is not None, init_from=T.get("init_from")), run_dir / "best.pt")
+            (run_dir / "log.json").write_text(json.dumps(log, indent=1, default=float))
+            continue
         val = evaluate(eval_model, dl_va, device, cfg["eval"]["threshold"])
         score = float(np.nanmean([v["csi_best"] for v in val.values()]))
         row = dict(epoch=ep, train_loss=tot / max(n, 1), val=val, val_csi=score, lr=sched.get_last_lr()[0], ema=ema is not None)
@@ -188,6 +204,11 @@ def train(cfg: dict, model_name: str | None = None, run_dir: str | Path | None =
               + " ".join(f"{k}:{v['csi_best']:.2f}@{v['thr_best']:.2f}" for k, v in val.items())
               + f" | CSI@0.5 {np.nanmean([v['csi'] for v in val.values()]):.2f} Brier {np.nanmean([v['brier'] for v in val.values()]):.4f}"
               + f"  ({time.time() - t_ep:.0f}s)", flush=True)
+        if fixed:                            # fixed-length run with a validation split: keep the last epoch, log val
+            torch.save(dict(model=eval_model.state_dict(), cfg=cfg, name=name, epoch=ep, val=val,
+                            ema=ema is not None, init_from=T.get("init_from")), run_dir / "best.pt")
+            (run_dir / "log.json").write_text(json.dumps(log, indent=1, default=float))
+            continue
         if score > best:
             best, bad = score, 0
             torch.save(dict(model=eval_model.state_dict(), cfg=cfg, name=name, epoch=ep, val=val,
