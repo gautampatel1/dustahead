@@ -115,3 +115,9 @@ def test_final_training_without_validation(tmp_path):
     assert len(log) == 2 and ck["epoch"] == 1
     if len(DustDataset(cfg["paths"]["samples"], "val", cfg=cfg)) == 0:
         assert ck["val"] is None
+    # evaluating it must not fit a temperature on validation events it trained on: scores stay raw
+    from dustahead.eval.evaluate import run as evaluate
+    ev_cfg = copy.deepcopy(cfg)
+    ev_cfg["splits"]["val_fold"] = 0
+    rep = evaluate(run_dir / "best.pt", ev_cfg, "train", baselines=(), device="cpu")   # synthetic data has no test split
+    assert rep["temperature"] == 1.0 and "trained on the validation" in rep["temperature_note"]

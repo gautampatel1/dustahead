@@ -64,6 +64,10 @@ def run(ckpt: str | Path, cfg: dict, split: str = "test", baselines=("persistenc
 
     # temperature scaling fitted on the validation split, applied to the evaluated split
     T, t_note = 1.0, "none"
+    if str(ck["cfg"].get("splits", {}).get("val_fold", 0)).lower() == "none" and calibrate_on == "val":
+        # a final model (splits.val_fold none) trained on every validation event: fitting a temperature there would be
+        # in-sample, so its scores stay raw (T = 1)
+        calibrate_on, t_note = None, "none (model trained on the validation events)"
     if calibrate_on and calibrate_on != split:
         pv, yv, *_ = collect(model, DustDataset(cfg["paths"]["samples"], calibrate_on, cfg=cfg), device, with_forecast=wf, with_radar=wr, radar_drop=rd, rkey=rk)
         T, t_note = temperature_scale(pv["model"].ravel(), yv.ravel()), f"fitted on {calibrate_on}"
