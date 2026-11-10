@@ -78,7 +78,7 @@ def road_overlay(ax):
     if ij is not None and now is not None:      # stations: red = reporting dust now, grey = clear, none = no report
         lons, lats = E.grid.lons()[ij[:, 1]], E.grid.lats()[ij[:, 0]]
         ax.scatter(lons[now == 1], lats[now == 1], s=18, c="red", edgecolors="white", lw=0.5, zorder=5)
-        ax.scatter(lons[now == -1], lats[now == -1], s=6, c="lightgrey", alpha=0.6, zorder=4)
+        ax.scatter(lons[now == 0], lats[now == 0], s=6, c="lightgrey", alpha=0.6, zorder=4)
 
 
 DARK = "#0e1117"

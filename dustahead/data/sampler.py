@@ -22,6 +22,10 @@ Targets (per lead 15/30/60 min):
                               a station reporting no dust; ADP dust pixels add weak 1s (weight 0.3)
   w[l]  (ny, nx) >= 0:       0 where unknown (masked), 1 near stations, 0.3 for ADP-only pixels
   station table:             (i, j, y_15, y_30, y_60, dust_now) for the station BCE term
+
+Only data available at t0 goes into x (hard rule 3): each GOES frame is the newest scan whose file existed at that
+frame time (goes.available_file), the HRRR analysis is the newest one published by t0 (hrrr.analysis_run), and the
+station channel `st_now` uses only reports at or before t0 with no warning check (stations.station_now).
 """
 from __future__ import annotations
 
@@ -199,18 +203,18 @@ def paint_targets(grid: Grid, st_rows: pd.DataFrame, leads, radius_km: float, ad
 def build_sample(t0: dt.datetime, grid: Grid, cfg: dict, static: np.ndarray, labels: pd.DataFrame,
                  stations: pd.DataFrame, use_adp: bool = True) -> dict | None:
     """Fetch everything for one t0 and return the sample dict, or None if satellite data is missing."""
-    from ..events.stations import station_targets
+    from ..events.stations import station_now, station_targets
     T, S, P = cfg["time"], cfg["satellite"], cfg["paths"]
     hrrr.set_cache(P["cache"])
     times = goes.frame_times(t0, T["history_frames"], T["step_min"])
     sat, flashes = [], []
     for t in times:
-        f = goes.nearest_file(S["bucket"], S["product"], t)
+        f = goes.available_file(S["bucket"], S["product"], t, S.get("latency_min", 2.0))   # newest scan that existed at t
         if f is None:
             return None
         sat.append(goes.frame_cached(f, grid, Path(P["cache"]) / "goes", BANDS))
         flashes.append(glm.flash_density_at(t, grid, cfg))
-    hr = hrrr.hrrr_stack(t0, grid)
+    hr = hrrr.hrrr_stack(t0, grid, cfg["hrrr"].get("analysis_lag_min", 60))
     hr["rain7d"] = hrrr.hrrr_7day_rain(t0, grid, days=7)
     clay, bare = static[STATIC_NAMES.index("clay")], static[STATIC_NAMES.index("bare")]
     prior = physics.erodibility_prior(hr["wind10"], hr["soilm"] * 25.0, clay, bare)
@@ -225,12 +229,12 @@ def build_sample(t0: dt.datetime, grid: Grid, cfg: dict, static: np.ndarray, lab
             f = goes.nearest_file(S["bucket"], S["dust_product"], t0 + dt.timedelta(minutes=lead))
             adp[lead] = goes.read_adp_dust(f, grid, cache_dir=Path(P["cache"]) / "adp") if f else None
     y, w = paint_targets(grid, st, T["leads_min"], cfg["label"]["station_radius_km"], adp)
-    dust_now = st.dust_now.values
+    dust_now = station_now(labels, st.station.values, t0, cfg)      # causal: reports at or before t0, no warning check
     genesis = not bool((dust_now == 1).any())
     return dict(x=x.astype(np.float16), y=y.astype(np.uint8), w=w.astype(np.float16),
-                st_ij=st[["i", "j"]].values.astype(np.int16),
+                st_ij=st[["i", "j"]].values.astype(np.int16), st_sid=st.station.values.astype("U8"),
                 st_y=st[[f"y_{l}" for l in T["leads_min"]]].values.astype(np.int8),
-                st_now=dust_now.astype(np.int8), t0=np.datetime64(t0.replace(tzinfo=None)),
+                st_now=dust_now, st_now_causal=np.array(True), t0=np.datetime64(t0.replace(tzinfo=None)),
                 genesis=np.array(genesis), dust_rgb=goes.dust_rgb(sat[-1]))
 
 

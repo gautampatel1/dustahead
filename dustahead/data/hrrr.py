@@ -2,8 +2,9 @@
 hrrr.YYYYMMDD/conus/hrrr.tHHz.wrfsfcfFF.grib2, 138 MB per file with a .idx inventory, so Herbie fetches
 only the GRIB messages we ask for, ~1-2 MB each).
 
-We use the HRRR ANALYSIS (fxx=0) valid at the top of the hour at or before t0, so every input is
-something an operational system would have had at forecast time. Fields:
+We use the newest HRRR ANALYSIS (fxx=0) that was PUBLISHED by t0 (analysis_run: valid at least
+hrrr.analysis_lag_min = 60 min before t0, since an analysis reaches AWS ~50 min after its valid hour), so every
+input is something an operational system would have had at forecast time. Fields:
   u10, v10 (10 m wind), gust (surface gust), cape (surface-based CAPE),
   rh2m (2 m relative humidity), soilm (MSTAV surface moisture availability, 0-100 % -> we store 0-1), t2m, d2m.
   The sfc product carries no SOILW layers (verified in the .idx, 2026-10-24); MSTAV is the surface
@@ -168,9 +169,17 @@ def fields_on_grid(run: dt.datetime, fields: tuple[str, ...], grid: Grid, fxx: i
     return out
 
 
-def hrrr_stack(t0: dt.datetime, grid: Grid) -> dict[str, np.ndarray]:
-    """All HRRR analysis inputs for one forecast time (run hour <= t0)."""
-    out = {k: field_on_grid(t0, k, grid) for k in ANALYSIS_FIELDS}
+def analysis_run(t0: dt.datetime, lag_min: float = 60.0) -> dt.datetime:
+    """Newest HRRR analysis hour PUBLISHED by t0. The analysis valid at hour H reaches AWS roughly 50 min after H,
+    so "valid at or before t0" is not enough: at t0 = 14:10 the 14 UTC analysis does not exist yet. With
+    lag_min = 60 the run is floor_hour(t0 - 60 min), e.g. 13 UTC for any t0 in [14:00, 15:00)."""
+    return (t0 - dt.timedelta(minutes=lag_min)).replace(minute=0, second=0, microsecond=0)
+
+
+def hrrr_stack(t0: dt.datetime, grid: Grid, lag_min: float = 60.0) -> dict[str, np.ndarray]:
+    """All HRRR analysis inputs for one forecast time, from the newest analysis available at t0 (analysis_run)."""
+    run = analysis_run(t0, lag_min)
+    out = {k: field_on_grid(run, k, grid) for k in ANALYSIS_FIELDS}
     out["soilm"] = out["soilm"] / 100.0          # MSTAV % -> fraction
     out["dcape"] = dcape_proxy(out["t2m"], out["d2m"])
     out["wind10"] = np.hypot(out["u10"], out["v10"])

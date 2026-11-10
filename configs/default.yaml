@@ -21,6 +21,7 @@ satellite:              # GOES-East ABI Cloud and Moisture Imagery, CONUS (cover
   product: ABI-L2-MCMIPC
   bands: [2, 7, 11, 13, 14, 15]   # 0.64, 3.9, 8.4, 10.3, 11.2, 12.3 um
   dust_product: ABI-L2-ADPC       # Aerosol Detection Product (weak pixel labels)
+  latency_min: 2        # an input frame must have been CREATED this long before its frame time (goes.available_file)
 
 lightning:
   bucket: null          # same satellite as the imagery
@@ -29,6 +30,7 @@ lightning:
 
 hrrr:
   fields: [u10, v10, gust, cape, rh2m, soilm, apcp]
+  analysis_lag_min: 60  # newest analysis PUBLISHED by t0 = floor_hour(t0 - 60 min); an analysis reaches AWS ~50 min late
 
 label:
   vis_max_mi: 1.0
@@ -36,6 +38,8 @@ label:
   dust_codes: [DU, BLDU, DS, SS, HZ, VCBLDU, DRDU, SA, BLSA]   # a dust code is REQUIRED
   rain_codes: [RA, DZ, SN, SHRA, TSRA, GR, GS, PL]              # recorded as rain_too, never excludes
   warning_pad_min: 60    # report counts if within ±60 min of a DS warning or Storm Events entry
+  now_window_min: 20     # station INPUT channel (stations.station_now): reports in (t0 - 20 min, t0] only ...
+  now_last_reports: 3    # ... the last 3 per station; vis + dust code, no warning check (it would be future information)
   asos_report_types: [1, 2, 3]   # 5-minute, routine hourly, specials
   station_radius_km: 12  # pixels within this radius of a labelled station share its label
   genesis_radius_km: 50  # "genesis" case = no dust within 50 km at t0

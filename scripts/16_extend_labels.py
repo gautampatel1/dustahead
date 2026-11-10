@@ -53,7 +53,7 @@ def _init(cfg_path, force=False):
 
 def rewrite_one(args):
     """(sample path, labels_ext csv) -> status. Repaints targets and the station table of one stored sample."""
-    from dustahead.events.stations import station_targets
+    from dustahead.events.stations import station_now, station_targets
     path, labels_csv = Path(args[0]), args[1]
     cfg, grid, stations = _G["cfg"], _G["grid"], _G["stations"]
     try:
@@ -101,11 +101,19 @@ def rewrite_one(args):
                 y[li][m] = v
                 w[li][m] = 1.0
         s["y"], s["w"] = y.astype(np.uint8), w.astype(np.float16)
+        # input channel: the causal ASOS rule (stations.station_now) on the raw ASOS reports, which carry the
+        # visibility and present-weather codes the extended table drops. Extended stations have no weather codes,
+        # so they are "no report" (-1) in the input - exactly what the live product sees - and targets only.
+        asos_csv = Path(cfg["paths"]["labels"]) / "events" / f"{path.stem.rsplit('_', 1)[0]}.csv"
+        now = station_now(pd.read_csv(asos_csv, low_memory=False), st.station.values, t0, cfg)
+        now[(st.source != "asos").values] = -1
         s["st_ij"] = st[["i", "j"]].values.astype(np.int16)
+        s["st_sid"] = st.station.values.astype("U8")
         s["st_y"] = st[[f"y_{l}" for l in leads]].values.astype(np.int8)
-        s["st_now"] = st.dust_now.values.astype(np.int8)
+        s["st_now"] = now
+        s["st_now_causal"] = np.array(True)
         s["st_src"] = st.source.map(SRC).values.astype(np.int8)
-        s["genesis"] = np.array(not bool((st.dust_now.values == 1).any()))
+        s["genesis"] = np.array(not bool((now == 1).any()))
         tmp = path.with_suffix(f".{os.getpid()}.tmp.npz")
         np.savez_compressed(tmp, **s)
         os.replace(tmp, path)

@@ -38,6 +38,7 @@ from ..grid import Grid
 from ._cache import keyed_lock
 
 _SCAN_RE = re.compile(r"_s(\d{14})_")
+_CREATED_RE = re.compile(r"_c(\d{14})")
 BANDS = (2, 7, 11, 13, 14, 15)
 GOES_EAST_SWITCH = dt.datetime(2025, 4, 7, 0, 0, tzinfo=dt.timezone.utc)
 
@@ -73,8 +74,30 @@ def scan_start(path: str) -> dt.datetime:
     return dt.datetime.strptime(s[:13], "%Y%j%H%M%S").replace(tzinfo=dt.timezone.utc)
 
 
+def created(path: str) -> dt.datetime:
+    """File creation time (the `_c` stamp): when the ground system finished the product, after the scan ended."""
+    s = _CREATED_RE.search(path).group(1)
+    return dt.datetime.strptime(s[:13], "%Y%j%H%M%S").replace(tzinfo=dt.timezone.utc)
+
+
+def available_file(bucket: str | None, product: str, t: dt.datetime, latency_min: float = 2.0,
+                   max_age_min: float = 15.0) -> str | None:
+    """The newest file a real-time system would have had at time t: created + latency_min <= t, scan start no more
+    than max_age_min before t. Use this for every INPUT frame (hard rule 3); nearest_file may pick a scan that
+    starts after t. A CONUS scan takes ~3 min and is created ~1 min after it ends, so the frame used at t is
+    typically 5-10 min old - that is the real age of the newest image at forecast time."""
+    if t.tzinfo is None:
+        t = t.replace(tzinfo=dt.timezone.utc)
+    bucket = bucket or bucket_for(t)
+    cands = list_files(bucket, product, t) + list_files(bucket, product, t - dt.timedelta(hours=1))
+    ready = [f for f in cands if created(f) + dt.timedelta(minutes=latency_min) <= t
+             and scan_start(f) >= t - dt.timedelta(minutes=max_age_min)]
+    return max(ready, key=scan_start) if ready else None
+
+
 def nearest_file(bucket: str | None, product: str, t: dt.datetime, max_minutes: float = 6.0) -> str | None:
-    """The file whose scan start is closest to t (searching this hour and the previous one)."""
+    """The file whose scan start is closest to t (searching this hour and the previous one). May be AFTER t:
+    fine for targets (ADP at t0 + lead) and source checks, not for inputs - use available_file there."""
     if t.tzinfo is None:
         t = t.replace(tzinfo=dt.timezone.utc)
     bucket = bucket or bucket_for(t)

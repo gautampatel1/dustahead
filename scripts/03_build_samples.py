@@ -48,7 +48,7 @@ def prefetch_one(args):
     t = pd.Timestamp(iso).to_pydatetime()
     try:
         if kind == "goes":
-            f = goes.nearest_file(S["bucket"], S["product"], t)
+            f = goes.available_file(S["bucket"], S["product"], t, S.get("latency_min", 2.0))   # same rule as the sampler
             if f:
                 goes.frame_cached(f, grid, Path(P["cache"]) / "goes", goes.BANDS)
         elif kind == "glm":
@@ -72,13 +72,14 @@ def prefetch_one(args):
 def prefetch_jobs(times, cfg):
     """Unique (kind, time) items needed by a list of forecast times."""
     import datetime as dt
+    from dustahead.data.hrrr import analysis_run
     T = cfg["time"]
     goes_t, glm_t, hrrr_t, rain_t, adp_t = set(), set(), set(), set(), set()
     for t0 in times:
         for k in range(T["history_frames"]):
             tk = t0 - dt.timedelta(minutes=T["step_min"] * k)
             goes_t.add(tk); glm_t.add(tk)
-        hrrr_t.add(t0.replace(minute=0, second=0, microsecond=0))
+        hrrr_t.add(analysis_run(t0, cfg["hrrr"].get("analysis_lag_min", 60)))
         last = t0.replace(minute=0, second=0, microsecond=0)
         last = last - dt.timedelta(hours=last.hour % 6)
         for k in range(28):
