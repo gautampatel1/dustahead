@@ -190,3 +190,25 @@ def test_radar_latency_blanks_newest_frames():
     r0 = N_CH_IN + N_FCST
     assert full.shape == lag.shape and full[r0:].min() == 1.0
     assert lag[r0:r0 + N_RADAR - 1].min() == 1.0 and lag[r0 + N_RADAR - 1].max() == 0.0
+
+
+def test_val_fold_none_with_index(tmp_path):
+    """With an index.csv (as on real data): val_fold none sends every 2025 sample to train and leaves val empty."""
+    import copy
+    import pandas as pd
+    from dustahead import load_config
+    from dustahead.data.synthetic import make_synthetic_dataset
+    from dustahead.grid import Grid
+    from dustahead.train.dataset import DustDataset
+    cfg = copy.deepcopy(load_config()); cfg["paths"]["samples"] = str(tmp_path)
+    make_synthetic_dataset(str(tmp_path), Grid.from_config(cfg), n=8, small=True)
+    rows = [dict(split=sp, file=f.name, event=f"ev{k % 4}", pos15=1, pos30=0, pos60=0, pix_pos=1)
+            for sp in ("train", "val") for k, f in enumerate(sorted((tmp_path / sp).glob("*.npz")))]
+    pd.DataFrame(rows).to_csv(tmp_path / "index.csv", index=False)
+    n_val_dir = sum(r["split"] == "val" for r in rows)
+    cfg["splits"]["val_fold"] = "none"
+    assert len(DustDataset(str(tmp_path), "val", cfg=cfg)) == 0
+    assert len(DustDataset(str(tmp_path), "train", cfg=cfg)) == len(rows)
+    cfg["splits"]["val_fold"] = 0
+    if n_val_dir:
+        assert len(DustDataset(str(tmp_path), "train", cfg=cfg)) < len(rows)

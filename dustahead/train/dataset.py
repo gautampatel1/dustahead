@@ -59,7 +59,8 @@ class DustDataset(Dataset):
     def __init__(self, root: str | Path, split: str, crop: tuple[int, int] | None = None, seed: int = 0,
                  limit: int | None = None, cfg: dict | None = None):
         self.files, self.rows = split_files(root, split, cfg)
-        if not self.files:
+        no_val = split == "val" and str((cfg or {}).get("splits", {}).get("val_fold", 0)).lower() == "none"
+        if not self.files and not no_val:   # an empty val split is expected only with val_fold none (final models)
             raise FileNotFoundError(f"no samples for split {split} under {root}")
         if limit and len(self.files) > limit:
             if self.rows is not None:       # keep every sample with a station positive, thin the rest evenly
