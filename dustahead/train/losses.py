@@ -4,12 +4,19 @@ Focal loss (Lin et al. 2017) handles the ~1:500 pixel imbalance:  FL = -alpha_t 
 FSS loss (Fractions Skill Score, Roberts & Lean 2008) rewards being right at the neighbourhood scale:
     FSS_n = 1 - sum (P_n - O_n)^2 / (sum P_n^2 + sum O_n^2), P_n/O_n = n x n box means of p / y.
 Station BCE is the only term on true ground observations; the pixel terms use painted targets.
-All operate on probabilities p (product of two sigmoids has no single logit).
+By default focal and station BCE operate on probabilities p clamped to [1e-6, 1 - 1e-6] (the product of two
+sigmoids has no single logit). With loss.log_space they take (log P, log(1 - P)) from models.log_probs instead:
+no clamp, so a closed gate keeps its gradient (the clamp returns exactly zero once P < 1e-6). FSS stays on p.
+Sky term (loss.w_sky, gated model only): BCE of the sky branch ALONE, sigmoid(z), against "outflow reached the
+station" (st_wind: wind or gust >= label.outflow_kt at t0 + lead). It gives sigmoid(z) its own meaning,
+P(outflow arrives), instead of letting the gate do all the discriminating, and every gusty afternoon is a positive.
 """
 from __future__ import annotations
 
 import torch
 import torch.nn.functional as F
+
+from ..models.gated_unet import log_probs
 
 EPS = 1e-6
 
@@ -21,6 +28,47 @@ def focal_loss(p, y, w, alpha=0.25, gamma=2.0):
     at = torch.where(y > 0.5, torch.full_like(p, alpha), torch.full_like(p, 1 - alpha))
     fl = -at * (1 - pt) ** gamma * torch.log(pt)
     return (fl * w).sum() / w.sum().clamp_min(1.0)
+
+
+def focal_loss_log(lp, l1p, y, w, alpha=0.25, gamma=2.0):
+    """focal_loss from log P and log(1 - P): same value where p is not clamped, finite gradient everywhere."""
+    pos = y.float() > 0.5
+    lpt = torch.where(pos, lp, l1p)
+    at = torch.where(pos, torch.full_like(lp, alpha), torch.full_like(lp, 1 - alpha))
+    fl = -at * (-torch.expm1(lpt)) ** gamma * lpt          # (1 - p_t)^gamma, with 1 - p_t = -expm1(log p_t)
+    return (fl * w).sum() / w.sum().clamp_min(1.0)
+
+
+def _at_stations(t, st_ij):
+    """(B, L, H, W) map -> (B, S, L) values at the station cells."""
+    B, L, H, W = t.shape
+    i = st_ij[..., 0].long().clamp(0, H - 1)
+    j = st_ij[..., 1].long().clamp(0, W - 1)
+    b = torch.arange(B, device=t.device)[:, None].expand_as(i)
+    return t[b, :, i, j]
+
+
+def station_bce_log(lp, l1p, st_ij, st_y, pos_weight: float = 1.0, st_gen=None, genesis_weight: float = 0.0):
+    """station_bce from log P and log(1 - P) maps (same masking and weights)."""
+    ls, l1s = _at_stations(lp, st_ij), _at_stations(l1p, st_ij)
+    y = st_y.float()
+    m = (y >= 0).float()
+    yp = y.clamp_min(0)
+    pw = torch.full_like(ls, float(pos_weight))
+    if st_gen is not None and genesis_weight:
+        pw = pw * (1.0 + genesis_weight * st_gen.float()[..., None])
+    bce = -(pw * yp * ls + (1 - yp) * l1s)
+    return (bce * m).sum() / m.sum().clamp_min(1.0)
+
+
+def sky_bce(z, st_ij, st_wind, pos_weight: float = 1.0):
+    """BCE of sigmoid(z) at the stations against the outflow target st_wind (B, S, L), -1 = unknown (masked)."""
+    zs = _at_stations(z, st_ij)
+    y = st_wind.float()
+    m = (y >= 0).float()
+    bce = F.binary_cross_entropy_with_logits(zs, y.clamp_min(0), reduction="none",
+                                             pos_weight=torch.tensor(float(pos_weight), device=z.device))
+    return (bce * m).sum() / m.sum().clamp_min(1.0)
 
 
 def fss(p, y, w, n=5):
@@ -64,14 +112,29 @@ class DustLoss(torch.nn.Module):
         # auxiliary dense head (model.unet.last_aux): focal + FSS against the same painted targets but with EVERY
         # labelled pixel at full weight (ADP satellite pixels included, w > 0), no station term.
         self.w_aux = float(L.get("w_aux", 0.0))
+        self.log_space = bool(L.get("log_space", False))
+        self.w_sky = float(L.get("w_sky", 0.0))
+        self.sky_pos_w = float(L.get("sky_pos_weight", 1.0))
 
-    def forward(self, p, batch, aux_logits=None):
+    def forward(self, p, batch, aux_logits=None, z=None, h=None, gate_floor: float = 0.0):
+        """p: model probabilities. z, h: the logits from model(x, return_parts=True) (h None without a gate); the
+        log-space and sky terms need them and fall back to the probability path when they are not given."""
         y, w = batch["y"], batch["w"]
-        lf = focal_loss(p, y, w, self.a, self.g)
+        if self.log_space and z is not None:
+            lp, l1p = log_probs(z.float(), None if h is None else h.float(), gate_floor)
+            p = lp.exp()
+            lf = focal_loss_log(lp, l1p, y, w, self.a, self.g)
+            lst = station_bce_log(lp, l1p, batch["st_ij"], batch["st_y"], self.pos_w, batch.get("st_gen"), self.gen_w)
+        else:
+            lf = focal_loss(p, y, w, self.a, self.g)
+            lst = station_bce(p, batch["st_ij"], batch["st_y"], self.pos_w, batch.get("st_gen"), self.gen_w)
         ls = 1 - fss(p, y, w, self.n)
-        lst = station_bce(p, batch["st_ij"], batch["st_y"], self.pos_w, batch.get("st_gen"), self.gen_w)
         total = self.wf * lf + self.ws * ls + self.wst * lst
         parts = dict(focal=lf.item(), fss=ls.item(), station=lst.item())
+        if self.w_sky and z is not None and h is not None and "st_wind" in batch:
+            lsk = sky_bce(z.float(), batch["st_ij"], batch["st_wind"], self.sky_pos_w)
+            total = total + self.w_sky * lsk
+            parts["sky"] = lsk.item()
         if self.w_aux and aux_logits is not None:
             pa = torch.sigmoid(aux_logits.float())
             wa = (w > 0).float()

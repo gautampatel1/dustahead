@@ -63,6 +63,7 @@ def synthetic_sample(grid: Grid, rng: np.random.Generator, leads=(15, 30, 60), d
     return dict(x=x.astype(np.float16), y=y.astype(np.uint8), w=w.astype(np.float16), xf=xf.astype(np.float16), xr=xr.astype(np.float16),
                 st_ij=np.stack([si, sj], 1).astype(np.int16), st_y=st_y,
                 st_now=np.zeros(n_st, np.int8), t0=np.datetime64("2025-08-26T02:00"),
+                st_wind=np.maximum(st_y, (rng.random(st_y.shape) < 0.2).astype(np.int8)),   # outflow: every dust row + gusty clear rows
                 genesis=np.array(True), dust_rgb=np.zeros((ny, nx, 3), np.uint8))
 
 

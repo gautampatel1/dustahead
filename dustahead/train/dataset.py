@@ -76,6 +76,11 @@ class DustDataset(Dataset):
                 keep = [int(k * step) for k in range(limit)]
             self.files = [self.files[k] for k in keep]
             self.rows = self.rows.iloc[keep].reset_index(drop=True) if self.rows is not None else None
+        if (cfg or {}).get("loss", {}).get("w_sky", 0):
+            with np.load(self.files[0], allow_pickle=False) as z:
+                if "st_wind" not in z.files:
+                    print(f"[dataset] {split}: loss.w_sky is set but samples carry no st_wind (the sky term is masked out); "
+                          "run scripts/21_add_wind_targets.py", flush=True)
         self.crop = crop
         self.rng = np.random.default_rng(seed)
         # station-dropout augmentation (training only): hide a fraction of the current station reports so the model
@@ -115,6 +120,8 @@ class DustDataset(Dataset):
         w = s["w"].astype(np.float32)
         ij = s["st_ij"].astype(np.int64)
         sy = s["st_y"].astype(np.int64)
+        # outflow target for the sky branch (loss.w_sky); samples built before it exist carry none -> masked (-1)
+        sw = s["st_wind"].astype(np.int64) if "st_wind" in s and len(s["st_wind"]) == len(sy) else np.full_like(sy, -1)
         if self.train_src is not None and "st_src" in s and (s["st_src"] != 0).any():
             keep_st = np.isin(s["st_src"], list(self.train_src))
             if not keep_st.all():
@@ -146,14 +153,17 @@ class DustDataset(Dataset):
             ij = ij - np.array([i0, j0])
             keep = (ij[:, 0] >= 0) & (ij[:, 0] < ch) & (ij[:, 1] >= 0) & (ij[:, 1] < cw)
             sy = np.where(keep[:, None], sy, -1)
+            sw = np.where(keep[:, None], sw, -1)
             ij = np.clip(ij, 0, [ch - 1, cw - 1])
         S = ij.shape[0]
         ij_p = np.zeros((MAX_STATIONS, 2), np.int64)
         sy_p = np.full((MAX_STATIONS, sy.shape[1]), -1, np.int64)
+        sw_p = np.full((MAX_STATIONS, sw.shape[1]), -1, np.int64)
         gen_p = np.zeros(MAX_STATIONS, bool)
         ij_p[:S] = ij[:MAX_STATIONS]
         sy_p[:S] = sy[:MAX_STATIONS]
+        sw_p[:S] = sw[:MAX_STATIONS]
         gen_p[:S] = gen[:MAX_STATIONS]
         return dict(x=torch.from_numpy(x), y=torch.from_numpy(y), w=torch.from_numpy(w),
                     st_ij=torch.from_numpy(ij_p), st_y=torch.from_numpy(sy_p), st_gen=torch.from_numpy(gen_p),
-                    genesis=torch.tensor(bool(s["genesis"])), idx=k)
+                    st_wind=torch.from_numpy(sw_p), genesis=torch.tensor(bool(s["genesis"])), idx=k)

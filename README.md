@@ -53,6 +53,7 @@ streamlit run dustahead/app/dashboard.py -- --demo   # replays stored storms wit
 | 1 | `01_build_event_list.py --years 2018 … 2026` | IEM NWS warnings (DS.W, SV.W) | `data/labels/events.csv` |
 | 2 | `02_build_static.py` | USGS 3DEP, SoilGrids, USDA CDL | `data/static/*.npy` |
 | 3 | `03_build_samples.py --workers 6` | GOES-East ABI + GLM + ADP (AWS), HRRR (Herbie), ASOS (IEM) | `data/samples/<split>/*.npz` |
+| 3c | `21_add_wind_targets.py [--dry-run]` | ASOS wind from step 3 | `st_wind` outflow targets for the sky-branch loss (v15b) |
 | 4 | `06_index_samples.py` | — | `data/samples/index.csv` (positives per sample) |
 | 5 | `04_train.py --model gated_unet [--config configs/<overlay>.yaml]` | — | `runs/<run>/best.pt` |
 | 6 | `05_evaluate.py --ckpt runs/<run>/best.pt --split val` | — | `runs/<run>/eval_val.json` + `eval_val_preds.npz` |

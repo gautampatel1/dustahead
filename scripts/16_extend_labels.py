@@ -53,7 +53,7 @@ def _init(cfg_path, force=False):
 
 def rewrite_one(args):
     """(sample path, labels_ext csv) -> status. Repaints targets and the station table of one stored sample."""
-    from dustahead.events.stations import station_targets
+    from dustahead.events.stations import station_targets, station_wind_targets
     path, labels_csv = Path(args[0]), args[1]
     cfg, grid, stations = _G["cfg"], _G["grid"], _G["stations"]
     try:
@@ -106,6 +106,10 @@ def rewrite_one(args):
         s["st_now"] = st.dust_now.values.astype(np.int8)
         s["st_src"] = st.source.map(SRC).values.astype(np.int8)
         s["genesis"] = np.array(not bool((st.dust_now.values == 1).any()))
+        # outflow targets follow the new station rows: wind comes from the raw ASOS reports (extended stations -> -1)
+        asos_csv = Path(cfg["paths"]["labels"]) / "events" / f"{path.stem.rsplit('_', 1)[0]}.csv"
+        s["st_wind"] = station_wind_targets(pd.read_csv(asos_csv, low_memory=False), st.station.values, t0, leads, cfg)
+        s["st_wind"][(st.source != "asos").values] = -1
         tmp = path.with_suffix(f".{os.getpid()}.tmp.npz")
         np.savez_compressed(tmp, **s)
         os.replace(tmp, path)

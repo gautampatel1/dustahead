@@ -1,0 +1,12 @@
+# Experiment config (v15a): keep the ground gate trainable, on the v11f recipe (forecast block, static gate).
+# Why: focal loss and station BCE clamped P = sigmoid(z) * sigmoid(h) at 1e-6 before the log, so wherever the gate shut
+# hard both branches got EXACTLY zero gradient and the gate could never reopen (gated_unet v4: sigma(h) = 0.000 over the
+# whole domain in monsoon season). log_space computes log P = logsigmoid(z) + log g(h) and log(1 - P) from the logits;
+# gate_floor = 0.02 means the ground can damp a forecast 50-fold but never veto it. No data change.
+channels:
+  hrrr_fcst: 6
+model:
+  gate_channels: [static, physics]
+  gate_floor: 0.02
+loss:
+  log_space: true

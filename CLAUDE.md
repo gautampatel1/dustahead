@@ -58,6 +58,10 @@ streamlit run dustahead/app/dashboard.py -- --ckpt runs/latest/best.pt --demo
 - PC: venv `C:\DustAhead\.venv`, RTX 5060 Ti, ~150 s/epoch. Job runner: drop a .bat into `jobs\q2\` (logs in `logs\jobs\`).
   The remote Linux shell on the PC: 3-minute commands, checks and fixes only.
 - Next: slides/doc update to real numbers, dashboard walkthrough, 2026 test once at the end (05_evaluate --split test).
+- Branch `feat/safe-gate` (v15): focal + station BCE clamped P at 1e-6, so a shut gate got exactly zero gradient and
+  could never reopen. `loss.log_space` (log P = logsigmoid(z) + log g(h)), `model.gate_floor` and `loss.w_sky` (sigmoid(z)
+  alone vs `st_wind`, wind/gust >= 30 kt at t0+lead) fix it. Overlays `safe_gate_v15a.yaml` (no data change) and
+  `safe_gate_v15b.yaml` (run `scripts/21_add_wind_targets.py` first). Defaults stay off so earlier runs reproduce.
 
 ## Known gaps / TODO (Phase 1)
 - `hrrr.dcape_proxy` is a proxy (HRRR has no DCAPE). Say so in the paper.

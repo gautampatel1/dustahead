@@ -155,9 +155,10 @@ def train(cfg: dict, model_name: str | None = None, run_dir: str | Path | None =
         for b in dl_tr:
             b = {k: (v.to(device) if torch.is_tensor(v) else v) for k, v in b.items()}
             with torch.autocast(device_type="cuda" if device == "cuda" else "cpu", dtype=amp_dtype, enabled=(T["amp"] and device == "cuda")):
-                p = model(b["x"])
+                p, z, h = model(b["x"], return_parts=True)     # logits for the log-space and sky terms
             unet = getattr(model, "unet", None)
-            loss, parts = crit(p.float(), b, getattr(unet, "last_aux", None))
+            loss, parts = crit(p.float(), b, getattr(unet, "last_aux", None), z=z, h=h,
+                               gate_floor=getattr(model, "gate_floor", 0.0))
             if not torch.isfinite(loss):
                 n_skipped += 1
                 opt.zero_grad(set_to_none=True)
