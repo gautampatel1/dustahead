@@ -484,3 +484,23 @@ Tucson 34), and half of it was being held back. With no validation half left, no
   validation half, which these models trained on.
 - Whether the product ensemble switches to the full-data members is a separate decision, taken after the 2026
   numbers are seen and reported as such.
+
+### 10 Nov — the second look: final models on 2026 (raw scores)
+
+Both models trained as pre-registered: v8full 2 epochs, v11ffull 4 epochs, 24,252 training samples, about 710 s per
+epoch, no validation split. Full table and reading: `results/test_2026/README.md` (section "Second look").
+
+- **v8full (paper model)** on 2026, ASOS stations only (Automated Surface Observing System), best-threshold CSI:
+  0.165 / 0.159 / 0.086, against 0.165 / 0.152 / 0.097 for v8 and 0.193 / 0.097 / 0.051 for station persistence.
+  Onset at 0.5, all stations: 0.031 / 0.036 / 0.024, every interval above zero, Holm p < 0.001 against every baseline.
+  Adding the 2025 validation half changed v8 by less than the event-bootstrap noise: same picture, slightly better
+  onset, slightly worse at +60.
+- **v11ffull (onset variant)**: 0.181 / 0.133 / 0.103. It has the best +60 score and the best onset scores of any model on
+  2026 (all stations at 0.5: 0.045 / 0.057 / 0.038, intervals above zero at +30 and +60; Holm p 0.008).
+  It is also the best-behaved at the fixed 0.5 cutoff (ASOS CSI 0.121 / 0.100 / 0.070 against v8full's
+  0.076 / 0.055 / 0.035): fewer false alarms (FAR 0.84–0.91 against 0.92–0.96).
+- Neither beats station persistence at +15 on 2026.
+- **Disclosure.** The first scoring of these two (job 97) still fitted a temperature on the 2025 validation half, which
+  they had trained on. `eval/evaluate.py` now keeps a final model's scores raw (T = 1; commit 09e130e) and both were
+  re-scored (job 98). Temperature does not move a 0.5 cutoff or the onset p-values; it moved best-threshold CSI by at
+  most 0.005 through the threshold grid. The numbers above are the raw ones.
