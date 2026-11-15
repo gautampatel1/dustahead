@@ -1,0 +1,16 @@
+# Experiment config (v15a): "WIND FIRST" - the v11f recipe (static gate, HRRR forecast block, 5-minute onset samples)
+# plus (1) a wind head on the sky branch that predicts "peak station wind >= 30 kt at t0 + lead" and (2) the station
+# wind at t0 as inputs (peak wind, its 30-min change, the 30-min temperature change).
+# Why: every run so far was limited by labelled dust onsets (379 in 544 event days). A dust storm is an outflow
+# crossing erodible ground, and the same stations record 13,596 strong-wind onsets in those days; 86 % of dust reports
+# come with >= 25 kt. The wind head gives the sky branch 36x more examples of an arriving outflow; the gate still
+# decides whether the ground can emit. Needs samples with st_wnow / st_wy: python scripts/20_add_wind.py --workers 6
+channels:
+  hrrr_fcst: 6
+  wind: 4
+model:
+  gate_channels: [static, physics]
+loss:
+  w_wind: 1.0
+  wind_kt: 30.0
+  wind_pos_weight: 3.0

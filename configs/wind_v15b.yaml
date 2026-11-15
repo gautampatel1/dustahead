@@ -1,0 +1,11 @@
+# Experiment config (v15b): the wind HEAD only (multi-task labels), without the station-wind inputs. Separates the two
+# effects of v15a: does the sky branch learn the outflow better from 36x more labels (this run), or does the gain
+# come from seeing the current station wind (v15a minus this run)?
+channels:
+  hrrr_fcst: 6
+model:
+  gate_channels: [static, physics]
+loss:
+  w_wind: 1.0
+  wind_kt: 30.0
+  wind_pos_weight: 3.0

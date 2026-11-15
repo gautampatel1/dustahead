@@ -140,3 +140,34 @@ def test_radar_block_and_aux_head():
     cfg2 = copy.deepcopy(cfg); cfg2["channels"]["hrrr_fcst"] = 0; cfg2["loss"]["w_aux"] = 0
     m2 = build_model(cfg2, "gated_unet")
     assert int(m2.dyn_idx.max()) == N_CH_IN_FULL - 1 and m2.unet.aux_head is None and (N_CH_IN_FULL - 63) == N_FCST + N_RADAR
+
+
+def test_wind_block_and_wind_head():
+    """channels.wind paints the station wind at a fixed slot after the radar block; loss.w_wind adds a wind head on
+    the sky branch trained on 'peak wind >= wind_kt at t0 + lead' at the stations."""
+    import copy
+    import numpy as np
+    from dustahead import load_config
+    from dustahead.data.sampler import CH, N_CH_IN_WIND, N_WIND, input_stack, paint_station_wind
+    from dustahead.models.gated_unet import build_model
+    from dustahead.train.losses import DustLoss
+    cfg = copy.deepcopy(load_config())
+    cfg["model"].update(base_channels=8, depth=2, gate_channels=["static", "physics"])
+    cfg["channels"].update(hrrr_fcst=6, wind=4); cfg["loss"].update(w_wind=1.0)
+    m = build_model(cfg, "gated_unet")
+    assert int(m.dyn_idx.max()) == N_CH_IN_WIND - 1 and m.unet.wind_head is not None
+    B, H, W = 2, 32, 48
+    p = m(torch.rand(B, N_CH_IN_WIND, H, W))
+    assert m.unet.last_wind.shape == p.shape
+    batch = dict(y=torch.zeros(B, 3, H, W), w=torch.ones(B, 3, H, W), st_ij=torch.randint(0, 32, (B, 5, 2)),
+                 st_y=torch.zeros(B, 5, 3, dtype=torch.long), st_wy=torch.tensor([1, 0, -1]).expand(B, 5, 3))
+    total, parts = DustLoss(cfg)(p, batch, None, m.unet.last_wind)
+    assert "wind" in parts and torch.isfinite(total)
+    # painting: strongest station wins on overlap, NaN stations leave no trace, mask channel marks reports
+    ij = np.array([[10, 10], [10, 11], [25, 40]])
+    wn = np.array([[20.0, 5.0, -2.0], [40.0, 15.0, -8.0], [np.nan, np.nan, np.nan]], np.float32)
+    blk = paint_station_wind(ij, wn, (H, W))
+    assert blk.shape == (N_WIND, H, W) and blk[0, 10, 10] == 1.0 and blk[3, 10, 10] == 1.0 and blk[3, 25, 40] == 0.0
+    s = dict(x=np.zeros((62, H, W), np.float16), st_ij=ij, st_now=np.zeros(3, np.int8), st_wnow=wn)
+    x = input_stack(s, None, True, False, 0, "xr", True)
+    assert x.shape[0] == N_CH_IN_WIND and x[CH["wind"]][0, 10, 10] == 1.0 and not x[CH["radar"]].any()

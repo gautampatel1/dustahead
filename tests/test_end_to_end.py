@@ -121,3 +121,21 @@ def test_final_training_without_validation(tmp_path):
     ev_cfg["splits"]["val_fold"] = 0
     rep = evaluate(run_dir / "best.pt", ev_cfg, "train", baselines=(), device="cpu")   # synthetic data has no test split
     assert rep["temperature"] == 1.0 and "trained on the validation" in rep["temperature_note"]
+
+
+def test_wind_first_training_and_wind_scores(tmp_path):
+    """v15 recipe on synthetic data: station-wind inputs + wind head train, and evaluation reports the wind head's
+    skill against wind persistence."""
+    import copy
+    cfg = copy.deepcopy(load_config())
+    cfg["paths"].update(samples=str(tmp_path / "samples"), runs=str(tmp_path / "runs"), static=str(tmp_path / "static"))
+    cfg["train"].update(batch_size=2, num_workers=0, crop=[48, 64], amp=False, fixed_epochs=1)
+    cfg["model"].update(base_channels=8, depth=2, gate_channels=["static", "physics"])
+    cfg["channels"].update(hrrr_fcst=6, wind=4)
+    cfg["loss"].update(w_wind=1.0, wind_kt=30.0)
+    cfg["eval"]["bootstrap"] = 20
+    make_synthetic_dataset(cfg["paths"]["samples"], Grid.from_config(cfg), n=6, small=True)
+    run_dir = train(cfg, "gated_unet", tmp_path / "runs" / "wind", device="cpu")
+    from dustahead.eval.evaluate import run as evaluate
+    rep = evaluate(run_dir / "best.pt", cfg, "val", baselines=(), device="cpu", calibrate_on=None)
+    assert "wind" in rep and rep["wind"]["all_30"]["n"] > 0 and "persistence_csi" in rep["wind"]["onset_60"]

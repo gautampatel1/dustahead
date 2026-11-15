@@ -17,7 +17,7 @@ import pandas as pd
 import torch
 from torch.utils.data import Dataset
 
-from ..data.sampler import genesis_per_station, input_stack, load_sample, radar_drop_newest, radar_key, wants_forecast, wants_radar
+from ..data.sampler import genesis_per_station, input_stack, load_sample, radar_drop_newest, radar_key, wants_forecast, wants_radar, wants_wind
 
 MAX_STATIONS = 256      # ASOS (~85) + extended Synoptic stations (road-weather, PM10, other visibility)
 
@@ -85,6 +85,9 @@ class DustDataset(Dataset):
         self.with_radar = wants_radar(cfg or {})            # append the radar block `xr` (channels.radar)
         self.radar_drop = radar_drop_newest(cfg or {})      # blank the newest radar frame(s): latency test
         self.radar_key = radar_key(cfg or {})               # which stored radar block (xr or xr_lag5)
+        self.with_wind = wants_wind(cfg or {})              # paint the station wind block (channels.wind)
+        # wind target for the wind head: peak wind (max of sustained and gust) >= loss.wind_kt at t0 + lead
+        self.wind_kt = float((cfg or {}).get("loss", {}).get("wind_kt", 30.0))
         # label sources the LOSS may see (label.train_sources; codes as in scripts/16_extend_labels.py: 0 asos, 1 rwis,
         # 2 vis_other, 3 pm10). Extended stations stay in the sample for evaluation and for the station channel, but
         # their discs get weight 0 and their station rows -1 in training when their source is not listed.
@@ -110,11 +113,16 @@ class DustDataset(Dataset):
         st_now = s["st_now"].copy()
         if self.station_dropout > 0:
             st_now[self.rng.random(len(st_now)) < self.station_dropout] = -1       # -1 = no report
-        x = input_stack(s, st_now, self.with_forecast, self.with_radar, self.radar_drop, self.radar_key)   # x (62) + station channel (+ forecast, radar)
+        x = input_stack(s, st_now, self.with_forecast, self.with_radar, self.radar_drop, self.radar_key, self.with_wind)   # x (62) + station channel (+ forecast, radar, wind)
         y = s["y"].astype(np.float32)
         w = s["w"].astype(np.float32)
         ij = s["st_ij"].astype(np.int64)
         sy = s["st_y"].astype(np.int64)
+        if "st_wy" in s:                    # (S, L) peak wind in knots at t0 + lead, NaN = no report -> {1, 0, -1}
+            wk = s["st_wy"].astype(np.float32)
+            wy = np.where(np.isfinite(wk), (wk >= self.wind_kt).astype(np.int64), -1)
+        else:
+            wy = np.full(sy.shape, -1, np.int64)
         if self.train_src is not None and "st_src" in s and (s["st_src"] != 0).any():
             keep_st = np.isin(s["st_src"], list(self.train_src))
             if not keep_st.all():
@@ -146,14 +154,17 @@ class DustDataset(Dataset):
             ij = ij - np.array([i0, j0])
             keep = (ij[:, 0] >= 0) & (ij[:, 0] < ch) & (ij[:, 1] >= 0) & (ij[:, 1] < cw)
             sy = np.where(keep[:, None], sy, -1)
+            wy = np.where(keep[:, None], wy, -1)
             ij = np.clip(ij, 0, [ch - 1, cw - 1])
         S = ij.shape[0]
         ij_p = np.zeros((MAX_STATIONS, 2), np.int64)
         sy_p = np.full((MAX_STATIONS, sy.shape[1]), -1, np.int64)
         gen_p = np.zeros(MAX_STATIONS, bool)
+        wy_p = np.full((MAX_STATIONS, sy.shape[1]), -1, np.int64)
+        wy_p[:S] = wy[:MAX_STATIONS]
         ij_p[:S] = ij[:MAX_STATIONS]
         sy_p[:S] = sy[:MAX_STATIONS]
         gen_p[:S] = gen[:MAX_STATIONS]
         return dict(x=torch.from_numpy(x), y=torch.from_numpy(y), w=torch.from_numpy(w),
-                    st_ij=torch.from_numpy(ij_p), st_y=torch.from_numpy(sy_p), st_gen=torch.from_numpy(gen_p),
+                    st_ij=torch.from_numpy(ij_p), st_y=torch.from_numpy(sy_p), st_gen=torch.from_numpy(gen_p), st_wy=torch.from_numpy(wy_p),
                     genesis=torch.tensor(bool(s["genesis"])), idx=k)

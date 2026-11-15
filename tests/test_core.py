@@ -212,3 +212,22 @@ def test_val_fold_none_with_index(tmp_path):
     cfg["splits"]["val_fold"] = 0
     if n_val_dir:
         assert len(DustDataset(str(tmp_path), "train", cfg=cfg)) < len(rows)
+
+
+def test_station_wind_uses_only_reports_up_to_t0():
+    """20_add_wind.station_wind: inputs come from reports at or before t0 (hard rule 3); targets are the highest
+    peak wind within +-10 min of t0 + lead."""
+    import importlib.util
+    import numpy as np
+    from pathlib import Path
+    spec = importlib.util.spec_from_file_location("add_wind", Path(__file__).resolve().parents[1] / "scripts" / "20_add_wind.py")
+    mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+    MIN = 60 * 10 ** 9
+    t0 = 1000 * MIN
+    t = np.array([-40, -5, 5, 30, 62], np.int64) * MIN + t0           # a 45 kt gust arrives 5 min AFTER t0
+    series = {"KAAA": (t, np.array([8, 12, 45, 38, 20], np.float32), np.array([100, 99, 85, 80, 80], np.float32))}
+    now, tgt = mod.station_wind(series, ["KAAA"], t0, [15, 30, 60])
+    assert now[0] == 12 and now[1] == 4 and now[2] == -1               # newest report <= t0, change vs the one 35 min older
+    assert tgt[0] == 45 and tgt[1] == 38 and tgt[2] == 20
+    now2, tgt2 = mod.station_wind(series, ["KZZZ"], t0, [15, 30, 60])
+    assert np.isnan(now2).all() and np.isnan(tgt2).all()

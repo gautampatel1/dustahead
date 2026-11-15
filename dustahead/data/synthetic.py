@@ -63,6 +63,9 @@ def synthetic_sample(grid: Grid, rng: np.random.Generator, leads=(15, 30, 60), d
     return dict(x=x.astype(np.float16), y=y.astype(np.uint8), w=w.astype(np.float16), xf=xf.astype(np.float16), xr=xr.astype(np.float16),
                 st_ij=np.stack([si, sj], 1).astype(np.int16), st_y=st_y,
                 st_now=np.zeros(n_st, np.int8), t0=np.datetime64("2025-08-26T02:00"),
+                # fake station wind: strong where the synthetic outflow is (knots), a rising wind and a temperature drop
+                st_wnow=np.stack([wind10[si, sj] * 2.2, wind10[si, sj] - 3, -(wind10[si, sj] - 3) / 2], 1).astype(np.float32),
+                st_wy=np.stack([wind10[si, sj] * (2.2 + 0.2 * li) for li in range(len(leads))], 1).astype(np.float32),
                 genesis=np.array(True), dust_rgb=np.zeros((ny, nx, 3), np.uint8))
 
 

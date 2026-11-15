@@ -9,7 +9,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
-from ..data.sampler import genesis_per_station as _genesis_ij, input_stack, load_sample, radar_drop_newest, radar_key, wants_forecast, wants_radar
+from ..data.sampler import genesis_per_station as _genesis_ij, input_stack, load_sample, radar_drop_newest, radar_key, wants_forecast, wants_radar, wants_wind
 from ..models.baselines import BASELINES, SAMPLE_BASELINES
 from ..train.dataset import DustDataset
 from ..train.train import load_checkpoint
@@ -28,15 +28,23 @@ def _station_values(p, st_ij, st_y):
 
 
 def collect(model, ds: DustDataset, device, baselines=(), with_forecast: bool = False, with_radar: bool = False,
-            radar_drop: int = 0, rkey: str = "xr"):
-    """Returns per-model station probabilities (N, L), labels (N, L), genesis flags, event ids, FSS lists."""
+            radar_drop: int = 0, rkey: str = "xr", with_wind: bool = False, wind_out: dict | None = None):
+    """Returns per-model station probabilities (N, L), labels (N, L), genesis flags, event ids, FSS lists.
+    wind_out (optional dict) is filled with the wind head's station probabilities `p` (N, L), the observed peak wind
+    at t0 + lead `kt` (N, L, NaN = no report) and at t0 `now` (N,), for models that have a wind head."""
     out = {name: [] for name in ("model",) + tuple(baselines)}
     ys, gen, ev, src, fss_pix = [], [], [], [], {name: [] for name in out}
     for k in range(len(ds)):
         s = load_sample(ds.files[k])
-        x = input_stack(s, None, with_forecast, with_radar, radar_drop, rkey)
+        x = input_stack(s, None, with_forecast, with_radar, radar_drop, rkey, with_wind)
         with torch.no_grad():
             p = model(torch.from_numpy(x)[None].to(device))[0].cpu().numpy()
+        wl = getattr(getattr(model, "unet", None), "last_wind", None)
+        if wind_out is not None and wl is not None and "st_wy" in s:
+            pw = torch.sigmoid(wl[0].float()).cpu().numpy()
+            wind_out.setdefault("p", []).append(pw[:, s["st_ij"][:, 0].astype(int), s["st_ij"][:, 1].astype(int)].T)
+            wind_out.setdefault("kt", []).append(s["st_wy"].astype(np.float32))
+            wind_out.setdefault("now", []).append(s["st_wnow"][:, 0].astype(np.float32))
         preds = {"model": p, **{b: (BASELINES[b](x) if b in BASELINES else SAMPLE_BASELINES[b](s)) for b in baselines}}
         ij, sy = s["st_ij"].astype(int), s["st_y"].astype(int)
         for name, pp in preds.items():
@@ -51,6 +59,25 @@ def collect(model, ds: DustDataset, device, baselines=(), with_forecast: bool = 
             np.concatenate(ev), {n: np.nanmean(v, 0).tolist() for n, v in fss_pix.items()}, np.concatenate(src))
 
 
+def wind_scores(p: np.ndarray, kt: np.ndarray, now: np.ndarray, leads, thr_kt: float) -> dict:
+    """Verification of the wind head. Event = peak wind (max of sustained and gust) >= thr_kt at t0 + lead.
+    `all`: every station-time with a report; `onset`: stations whose wind at t0 was below the threshold (or not
+    reported), where wind persistence scores zero by construction. CSI at the best probability threshold."""
+    out = dict(threshold_kt=thr_kt)
+    calm = ~(np.nan_to_num(now, nan=0.0) >= thr_kt)
+    for l, lead in enumerate(leads):
+        ok = np.isfinite(kt[:, l])
+        y = (kt[:, l] >= thr_kt).astype(int)
+        pers = (np.nan_to_num(now, nan=0.0) >= thr_kt).astype(float)
+        for tag, m in (("all", ok), ("onset", ok & calm)):
+            best = max((dict(station_scores(p[m, l], y[m], t), thr=float(t)) for t in np.arange(0.05, 0.96, 0.05)),
+                       key=lambda z: -1 if np.isnan(z["csi"]) else z["csi"])
+            out[f"{tag}_{lead}"] = dict(csi_best=best["csi"], thr=best["thr"], pod=best["pod"], far=best["far"],
+                                        n_pos=int(y[m].sum()), n=int(m.sum()),
+                                        persistence_csi=station_scores(pers[m], y[m], 0.5)["csi"])
+    return out
+
+
 def run(ckpt: str | Path, cfg: dict, split: str = "test", baselines=("persistence", "advected", "hrrr_rule"),
         device: str | None = None, calibrate_on: str = "val") -> dict:
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
@@ -59,6 +86,8 @@ def run(ckpt: str | Path, cfg: dict, split: str = "test", baselines=("persistenc
     wr = wants_radar(ck["cfg"])
     rd = radar_drop_newest(ck["cfg"])
     rk = radar_key(ck["cfg"])       # a latency-trained model is also evaluated without the newest frame(s)
+    ww = wants_wind(ck["cfg"])
+    wind_out: dict = {}
     leads = cfg["time"]["leads_min"]
     thr, B = cfg["eval"]["threshold"], cfg["eval"]["bootstrap"]
 
@@ -69,9 +98,9 @@ def run(ckpt: str | Path, cfg: dict, split: str = "test", baselines=("persistenc
         # in-sample, so its scores stay raw (T = 1)
         calibrate_on, t_note = None, "none (model trained on the validation events)"
     if calibrate_on and calibrate_on != split:
-        pv, yv, *_ = collect(model, DustDataset(cfg["paths"]["samples"], calibrate_on, cfg=cfg), device, with_forecast=wf, with_radar=wr, radar_drop=rd, rkey=rk)
+        pv, yv, *_ = collect(model, DustDataset(cfg["paths"]["samples"], calibrate_on, cfg=cfg), device, with_forecast=wf, with_radar=wr, radar_drop=rd, rkey=rk, with_wind=ww)
         T, t_note = temperature_scale(pv["model"].ravel(), yv.ravel()), f"fitted on {calibrate_on}"
-    preds, y, gen, ev, fss_pix, src = collect(model, DustDataset(cfg["paths"]["samples"], split, cfg=cfg), device, baselines, with_forecast=wf, with_radar=wr, radar_drop=rd, rkey=rk)
+    preds, y, gen, ev, fss_pix, src = collect(model, DustDataset(cfg["paths"]["samples"], split, cfg=cfg), device, baselines, with_forecast=wf, with_radar=wr, radar_drop=rd, rkey=rk, with_wind=ww, wind_out=wind_out)
     asos = src == 0
     if calibrate_on == split:            # two-parameter Platt fit on the evaluated split itself; say so in the report
         a, b = platt_scale(preds["model"].ravel(), y.ravel())
@@ -114,6 +143,9 @@ def run(ckpt: str | Path, cfg: dict, split: str = "test", baselines=("persistenc
                     if m.any():
                         r[f"{name_src}_{lead}"] = station_scores(p[m, l], y[m, l], thr)
         report["models"][name] = r
+    if wind_out.get("p"):       # wind head: skill at "peak wind >= wind_kt at t0 + lead", against wind persistence
+        report["wind"] = wind_scores(np.concatenate(wind_out["p"]), np.concatenate(wind_out["kt"]),
+                                     np.concatenate(wind_out["now"]), leads, float(ck["cfg"].get("loss", {}).get("wind_kt", 30.0)))
     pv = {}
     for name in baselines:
         l = leads.index(30)
@@ -126,6 +158,8 @@ def run(ckpt: str | Path, cfg: dict, split: str = "test", baselines=("persistenc
     out = Path(ckpt).parent / f"eval_{split}.json"
     out.write_text(json.dumps(report, indent=1, default=float))
     print(json.dumps({k: v for k, v in report.items() if k != "models"}, indent=1, default=float))
+    if "wind" in report:
+        print("wind head", {k: (round(v["csi_best"], 3), round(v["persistence_csi"], 3), v["n_pos"]) for k, v in report["wind"].items() if isinstance(v, dict)})
     for name, r in report["models"].items():
         print(name, {k: round(v["csi"], 3) for k, v in r.items() if k.startswith("genesis")})
     return report

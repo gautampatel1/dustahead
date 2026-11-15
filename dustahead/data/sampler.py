@@ -55,9 +55,14 @@ CH = {  # channel index ranges, for the gate and for plotting
 RADAR_KEYS = ("dbz_m20", "dbz_m10", "dbz_0")      # NEXRAD composite reflectivity at t0-20, t0-10, t0 (key `xr`)
 N_RADAR = len(RADAR_KEYS)
 CH["radar"] = slice(63 + N_FCST, 63 + N_FCST + N_RADAR)   # static slot: after the forecast block even if that is absent
+WIND_KEYS = ("peak_kt", "d_peak_30min", "d_temp_30min", "has_report")   # station wind painted at load time (key `st_wnow`)
+N_WIND = len(WIND_KEYS)
+WIND_SCALE = (40.0, 20.0, 10.0)     # knots, knots per 30 min, deg F per 30 min
+CH["wind"] = slice(63 + N_FCST + N_RADAR, 63 + N_FCST + N_RADAR + N_WIND)   # static slot after the radar block
 N_CH_IN = 63                 # base input: stored x (62) + station channel
 N_CH_IN_FCST = 63 + N_FCST   # with the HRRR forecast block appended
 N_CH_IN_FULL = 63 + N_FCST + N_RADAR
+N_CH_IN_WIND = N_CH_IN_FULL + N_WIND
 
 
 def assemble_forecast(fc: dict[str, np.ndarray]) -> np.ndarray:
@@ -71,7 +76,8 @@ def assemble_radar(stack: np.ndarray) -> np.ndarray:
 
 
 def input_stack(sample: dict, st_now: np.ndarray | None = None, with_forecast: bool = False,
-                with_radar: bool = False, radar_drop_newest: int = 0, radar_key: str = "xr") -> np.ndarray:
+                with_radar: bool = False, radar_drop_newest: int = 0, radar_key: str = "xr",
+                with_wind: bool = False, st_wnow: np.ndarray | None = None) -> np.ndarray:
     """The model input for one stored sample: x (62) + painted station channel (+ the forecast block `xf`
     + the radar block `xr`). Blocks sit at fixed channel slots (CH), so when the radar block is wanted the forecast
     slot is filled with zeros if the model does not use it. `st_now` overrides the stored reports (station dropout,
@@ -79,14 +85,25 @@ def input_stack(sample: dict, st_now: np.ndarray | None = None, with_forecast: b
     x = sample["x"].astype(np.float32)
     now = sample["st_now"] if st_now is None else st_now
     parts = [x, paint_station_now(sample["st_ij"], now, x.shape[1:])[None]]
-    if with_forecast or with_radar:
+    if with_forecast or with_radar or with_wind:
         parts.append(_block(sample, "xf", N_FCST, x.shape[1:], warn=with_forecast))
+    if with_wind and not with_radar:       # keep the wind block at its fixed slot: radar slot filled with zeros
+        parts.append(np.zeros((N_RADAR,) + x.shape[1:], np.float32))
     if with_radar:
         xr = _block(sample, radar_key, N_RADAR, x.shape[1:], warn=True)
         if radar_drop_newest:          # latency test: the newest frame(s) are not yet in the mosaic at t0
             xr = xr.copy()
             xr[N_RADAR - radar_drop_newest:] = 0.0
         parts.append(xr)
+    if with_wind:
+        wnow = sample.get("st_wnow") if st_wnow is None else st_wnow
+        if wnow is None:
+            if "st_wnow" not in _WARNED:
+                print("[sampler] sample without `st_wnow`: zeros used (run scripts/20_add_wind.py)", flush=True)
+                _WARNED.add("st_wnow")
+            parts.append(np.zeros((N_WIND,) + x.shape[1:], np.float32))
+        else:
+            parts.append(paint_station_wind(sample["st_ij"], wnow, x.shape[1:]))
     return np.concatenate(parts, 0)
 
 
@@ -104,6 +121,13 @@ def _block(sample: dict, key: str, n: int, shape, warn: bool) -> np.ndarray:
 
 def wants_forecast(cfg: dict) -> bool:
     return bool(cfg.get("channels", {}).get("hrrr_fcst", 0))
+
+
+def wants_wind(cfg: dict) -> bool:
+    """channels.wind: paint what the stations measure RIGHT NOW (peak wind, its 30-min change, the 30-min temperature
+    change) as sky-branch inputs. A thunderstorm outflow reaches a station as a gust, a wind shift and a temperature
+    drop minutes before the dust wall does."""
+    return bool(cfg.get("channels", {}).get("wind", 0))
 
 
 def wants_radar(cfg: dict) -> bool:
@@ -132,6 +156,26 @@ def paint_station_now(st_ij: np.ndarray, st_now: np.ndarray, shape: tuple[int, i
         m = np.hypot(yy - i, xx - j) <= radius_cells
         out[m] = 1.0 if now == 1 else np.where(out[m] == 1.0, 1.0, -1.0)
     return out
+
+
+def paint_station_wind(st_ij: np.ndarray, st_wnow: np.ndarray, shape: tuple[int, int], radius_cells: int = 3) -> np.ndarray:
+    """(N_WIND, ny, nx): station wind at t0 painted on 12 km discs. st_wnow: (S, 3) = peak wind (max of sustained
+    and gust, knots), its change over the last ~30 min (knots), the temperature change over the last ~30 min (deg F);
+    NaN = not reported. Channel 4 is 1 where a station reported wind at all, so "calm" and "no station" differ.
+    Where discs overlap the station with the stronger wind wins."""
+    out = np.zeros((N_WIND,) + tuple(shape), np.float32)
+    yy, xx = np.mgrid[0:shape[0], 0:shape[1]]
+    w = np.asarray(st_wnow, np.float32)
+    order = np.argsort(np.nan_to_num(w[:, 0], nan=-1.0))          # strongest painted last
+    for k in order:
+        if not np.isfinite(w[k, 0]):
+            continue
+        i, j = st_ij[k]
+        m = np.hypot(yy - i, xx - j) <= radius_cells
+        for c in range(3):
+            out[c][m] = np.nan_to_num(w[k, c]) / WIND_SCALE[c]
+        out[3][m] = 1.0
+    return np.clip(out, -3.0, 3.0)
 
 
 def genesis_per_station(st_ij: np.ndarray, st_now: np.ndarray, radius_cells: int = 12) -> np.ndarray:
