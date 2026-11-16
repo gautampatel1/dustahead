@@ -63,6 +63,9 @@ N_CH_IN = 63                 # base input: stored x (62) + station channel
 N_CH_IN_FCST = 63 + N_FCST   # with the HRRR forecast block appended
 N_CH_IN_FULL = 63 + N_FCST + N_RADAR
 N_CH_IN_WIND = N_CH_IN_FULL + N_WIND
+N_DNOW = 2                          # station blowing-dust state at t0: severity level, has-report mask (key `st_dvis_now`)
+CH["dust_now"] = slice(N_CH_IN_WIND, N_CH_IN_WIND + N_DNOW)     # static slot after the wind block
+N_CH_IN_DNOW = N_CH_IN_WIND + N_DNOW
 
 
 def assemble_forecast(fc: dict[str, np.ndarray]) -> np.ndarray:
@@ -77,7 +80,7 @@ def assemble_radar(stack: np.ndarray) -> np.ndarray:
 
 def input_stack(sample: dict, st_now: np.ndarray | None = None, with_forecast: bool = False,
                 with_radar: bool = False, radar_drop_newest: int = 0, radar_key: str = "xr",
-                with_wind: bool = False, st_wnow: np.ndarray | None = None) -> np.ndarray:
+                with_wind: bool = False, st_wnow: np.ndarray | None = None, with_dust_now: bool = False) -> np.ndarray:
     """The model input for one stored sample: x (62) + painted station channel (+ the forecast block `xf`
     + the radar block `xr`). Blocks sit at fixed channel slots (CH), so when the radar block is wanted the forecast
     slot is filled with zeros if the model does not use it. `st_now` overrides the stored reports (station dropout,
@@ -85,9 +88,10 @@ def input_stack(sample: dict, st_now: np.ndarray | None = None, with_forecast: b
     x = sample["x"].astype(np.float32)
     now = sample["st_now"] if st_now is None else st_now
     parts = [x, paint_station_now(sample["st_ij"], now, x.shape[1:])[None]]
-    if with_forecast or with_radar or with_wind:
+    with_wind_slot = with_wind or with_dust_now
+    if with_forecast or with_radar or with_wind_slot:
         parts.append(_block(sample, "xf", N_FCST, x.shape[1:], warn=with_forecast))
-    if with_wind and not with_radar:       # keep the wind block at its fixed slot: radar slot filled with zeros
+    if with_wind_slot and not with_radar:       # keep the wind block at its fixed slot: radar slot filled with zeros
         parts.append(np.zeros((N_RADAR,) + x.shape[1:], np.float32))
     if with_radar:
         xr = _block(sample, radar_key, N_RADAR, x.shape[1:], warn=True)
@@ -104,7 +108,41 @@ def input_stack(sample: dict, st_now: np.ndarray | None = None, with_forecast: b
             parts.append(np.zeros((N_WIND,) + x.shape[1:], np.float32))
         else:
             parts.append(paint_station_wind(sample["st_ij"], wnow, x.shape[1:]))
+    elif with_dust_now:
+        parts.append(np.zeros((N_WIND,) + x.shape[1:], np.float32))
+    if with_dust_now:
+        if "st_dvis_now" not in sample:
+            if "st_dvis_now" not in _WARNED:
+                print("[sampler] sample without `st_dvis_now`: zeros used (run scripts/22_add_dust_tiers.py)", flush=True)
+                _WARNED.add("st_dvis_now")
+            parts.append(np.zeros((N_DNOW,) + x.shape[1:], np.float32))
+        else:
+            parts.append(paint_station_dust_now(sample["st_ij"], sample["st_dvis_now"], x.shape[1:]))
     return np.concatenate(parts, 0)
+
+
+def wants_dust_now(cfg: dict) -> bool:
+    """channels.dust_now: paint what the stations report about dust RIGHT NOW at any severity (a dust weather code
+    with its visibility), not only the strict <= 1 mi label of the station channel. Blowing dust at 3-6 mi upstream
+    is the earliest ground observation of a storm that later reaches 1 mi."""
+    return bool(cfg.get("channels", {}).get("dust_now", 0))
+
+
+def paint_station_dust_now(st_ij: np.ndarray, st_dvis_now: np.ndarray, shape: tuple[int, int], radius_cells: int = 3) -> np.ndarray:
+    """(N_DNOW, ny, nx): channel 0 = severity (6 - visibility) / 6 of a dust-coded report (0 = no dust code, 1 = zero
+    visibility), channel 1 = 1 where a station reported at all. Worst report wins where discs overlap."""
+    out = np.zeros((N_DNOW,) + tuple(shape), np.float32)
+    yy, xx = np.mgrid[0:shape[0], 0:shape[1]]
+    dv = np.asarray(st_dvis_now, np.float32)
+    lvl = np.clip((6.0 - dv) / 6.0, 0.0, 1.0)
+    for k in np.argsort(np.nan_to_num(lvl, nan=-1.0)):
+        if not np.isfinite(dv[k]):
+            continue
+        i, j = st_ij[k]
+        m = np.hypot(yy - i, xx - j) <= radius_cells
+        out[0][m] = lvl[k]
+        out[1][m] = 1.0
+    return out
 
 
 _WARNED = set()

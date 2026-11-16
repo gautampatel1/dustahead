@@ -591,3 +591,45 @@ Validation fold 0, ASOS onset rows (no dust within 50 km at t0), from `runs/wind
 - The lower-severity event (dust code, visibility <= 3 mi) has 6.6 times the onsets and is the same physics.
 - Next (v16, `configs/tier_v16.yaml`): a blowing-dust head on that event, through the same gate, as a second training
   target and as a second product tier with its own verification. The strict label and the primary metric do not change.
+
+### v15c (two-stage: wind only, then dust on top), best epoch 11 of 18
+
+| | CSI best +15 / +30 / +60 | onset CSI at 0.5 | onset POD / FAR at +60 | Holm p |
+|---|---|---|---|---|
+| gated_unet v8 | 0.510 / 0.393 / 0.215 | 0.052 / 0.081 / 0.096 | 0.27 / 0.87 | 0.056 |
+| gated_unet v11f | 0.490 / 0.359 / 0.214 | 0.060 / 0.076 / 0.104 | 0.32 / 0.87 | 0.048 |
+| gated_unet v15c | 0.423 / 0.333 / **0.236** | **0.077** / 0.078 / **0.148** | 0.31 / **0.78** | 0.34 |
+
+A trade: the best +60 and the best onset scores so far, with fewer onset false alarms at +60, paid for with clearly
+worse +15 and +30. The onset interval at +60 is wide ([0.01, 0.21], all stations) and the paired test at +30 is not
+significant. Not adopted; kept as evidence that wind pre-training moves skill toward the long lead.
+
+## 16 Nov — v16: a blowing-dust head (dust code and visibility <= 3 mi), `configs/tier_v16.yaml`, best epoch 1 of 10
+
+`scripts/22_add_dust_tiers.py`: 1,887,749 station rows with a target, 19,855 with blowing dust.
+
+Strict benchmark (unchanged label), ASOS:
+
+| | CSI best +15 / +30 / +60 | onset CSI at 0.5 | onset POD at 0.5 |
+|---|---|---|---|
+| gated_unet v8 | 0.510 / 0.393 / 0.215 | 0.052 / 0.081 / 0.096 | 0.20 / 0.30 / 0.27 |
+| gated_unet v16 | 0.503 / **0.404** / 0.221 | 0.026 / 0.040 / 0.043 | 0.04 / 0.08 / 0.08 |
+
+The blowing-dust head itself (event: dust code with visibility <= 3 mi, or a strict label), CSI at the best threshold:
+
+| | +15 | +30 | +60 |
+|---|---|---|---|
+| all: model / blowing-dust persistence | 0.300 / 0.456 | 0.304 / 0.356 | 0.273 / 0.288 |
+| onset: CSI [95 % CI] | 0.099 [0.04, 0.14] | 0.122 [0.04, 0.17] | 0.124 [0.03, 0.19] |
+| onset: POD / FAR | 0.21 / 0.84 | 0.19 / 0.75 | 0.20 / 0.75 |
+| positives: all / onset | 1,036 / 336 | 1,428 / 640 | 1,469 / 804 |
+
+Reading:
+- Overall strict skill is at the level of v8 (best +30 so far); strict onset at 0.5 is lower because the model is
+  less confident (POD 0.04-0.08 at 0.5), not adopted.
+- The blowing-dust alert is easier on onsets than the strict one (CSI 0.12 with FAR 0.75, against 0.05-0.10 with FAR
+  0.9) but this run undersells it twice: the checkpoint was picked on the strict score after two epochs, and the model
+  loses to blowing-dust persistence overall because it cannot see what persistence uses, the stations' current dust
+  reports below the strict threshold.
+- Next: `channels.dust_now` paints those reports. v16b trains the blowing-dust target alone for 8 fixed epochs with
+  that input (how good can the second tier be?); v16c is v16 with that input (does it help the strict benchmark?).

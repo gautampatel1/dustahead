@@ -9,7 +9,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
-from ..data.sampler import genesis_per_station as _genesis_ij, input_stack, load_sample, radar_drop_newest, radar_key, wants_forecast, wants_radar, wants_wind
+from ..data.sampler import genesis_per_station as _genesis_ij, input_stack, load_sample, radar_drop_newest, radar_key, wants_forecast, wants_dust_now, wants_radar, wants_wind
 from ..models.baselines import BASELINES, SAMPLE_BASELINES
 from ..train.dataset import DustDataset
 from ..train.train import load_checkpoint
@@ -28,7 +28,8 @@ def _station_values(p, st_ij, st_y):
 
 
 def collect(model, ds: DustDataset, device, baselines=(), with_forecast: bool = False, with_radar: bool = False,
-            radar_drop: int = 0, rkey: str = "xr", with_wind: bool = False, wind_out: dict | None = None):
+            radar_drop: int = 0, rkey: str = "xr", with_wind: bool = False, wind_out: dict | None = None,
+            with_dust_now: bool = False):
     """Returns per-model station probabilities (N, L), labels (N, L), genesis flags, event ids, FSS lists.
     wind_out (optional dict) is filled with the wind head's station probabilities `p` (N, L), the observed peak wind
     at t0 + lead `kt` (N, L, NaN = no report) and at t0 `now` (N,), for models that have a wind head."""
@@ -36,7 +37,7 @@ def collect(model, ds: DustDataset, device, baselines=(), with_forecast: bool = 
     ys, gen, ev, src, fss_pix = [], [], [], [], {name: [] for name in out}
     for k in range(len(ds)):
         s = load_sample(ds.files[k])
-        x = input_stack(s, None, with_forecast, with_radar, radar_drop, rkey, with_wind)
+        x = input_stack(s, None, with_forecast, with_radar, radar_drop, rkey, with_wind, None, with_dust_now)
         with torch.no_grad():
             p = model(torch.from_numpy(x)[None].to(device))[0].cpu().numpy()
         wl = getattr(getattr(model, "unet", None), "last_wind", None)
@@ -113,6 +114,7 @@ def run(ckpt: str | Path, cfg: dict, split: str = "test", baselines=("persistenc
     rd = radar_drop_newest(ck["cfg"])
     rk = radar_key(ck["cfg"])       # a latency-trained model is also evaluated without the newest frame(s)
     ww = wants_wind(ck["cfg"])
+    wd = wants_dust_now(ck["cfg"])
     wind_out: dict = {}
     leads = cfg["time"]["leads_min"]
     thr, B = cfg["eval"]["threshold"], cfg["eval"]["bootstrap"]
@@ -124,9 +126,9 @@ def run(ckpt: str | Path, cfg: dict, split: str = "test", baselines=("persistenc
         # in-sample, so its scores stay raw (T = 1)
         calibrate_on, t_note = None, "none (model trained on the validation events)"
     if calibrate_on and calibrate_on != split:
-        pv, yv, *_ = collect(model, DustDataset(cfg["paths"]["samples"], calibrate_on, cfg=cfg), device, with_forecast=wf, with_radar=wr, radar_drop=rd, rkey=rk, with_wind=ww)
+        pv, yv, *_ = collect(model, DustDataset(cfg["paths"]["samples"], calibrate_on, cfg=cfg), device, with_forecast=wf, with_radar=wr, radar_drop=rd, rkey=rk, with_wind=ww, with_dust_now=wd)
         T, t_note = temperature_scale(pv["model"].ravel(), yv.ravel()), f"fitted on {calibrate_on}"
-    preds, y, gen, ev, fss_pix, src = collect(model, DustDataset(cfg["paths"]["samples"], split, cfg=cfg), device, baselines, with_forecast=wf, with_radar=wr, radar_drop=rd, rkey=rk, with_wind=ww, wind_out=wind_out)
+    preds, y, gen, ev, fss_pix, src = collect(model, DustDataset(cfg["paths"]["samples"], split, cfg=cfg), device, baselines, with_forecast=wf, with_radar=wr, radar_drop=rd, rkey=rk, with_wind=ww, wind_out=wind_out, with_dust_now=wd)
     asos = src == 0
     if calibrate_on == split:            # two-parameter Platt fit on the evaluated split itself; say so in the report
         a, b = platt_scale(preds["model"].ravel(), y.ravel())

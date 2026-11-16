@@ -186,7 +186,7 @@ def build_model(cfg: dict, name: str | None = None) -> nn.Module:
     # optional blocks, appended LAST in a fixed order so a checkpoint without them is a channel prefix (warm start)
     ch = cfg.get("channels", {})
     extra = (("hrrr_fcst",) if ch.get("hrrr_fcst", 0) else ()) + (("radar",) if ch.get("radar", 0) else ()) \
-        + (("wind",) if ch.get("wind", 0) else ())
+        + (("wind",) if ch.get("wind", 0) else ()) + (("dust_now",) if ch.get("dust_now", 0) else ())
     wind = bool(cfg.get("loss", {}).get("w_wind", 0))      # wind head: strong wind at t0 + lead (multi-task)
     tier = bool(cfg.get("loss", {}).get("w_tier", 0))      # blowing-dust head: dust code with visibility <= tier_vis_mi
     aux = bool(cfg.get("loss", {}).get("w_aux", 0))        # second dense head: satellite dust mask (multi-task)

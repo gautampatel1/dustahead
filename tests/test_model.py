@@ -171,3 +171,16 @@ def test_wind_block_and_wind_head():
     s = dict(x=np.zeros((62, H, W), np.float16), st_ij=ij, st_now=np.zeros(3, np.int8), st_wnow=wn)
     x = input_stack(s, None, True, False, 0, "xr", True)
     assert x.shape[0] == N_CH_IN_WIND and x[CH["wind"]][0, 10, 10] == 1.0 and not x[CH["radar"]].any()
+
+
+def test_dust_now_block_slot_and_painting():
+    """channels.dust_now sits after the wind slot (zeros when wind is off); worst station report wins."""
+    import numpy as np
+    from dustahead.data.sampler import CH, N_CH_IN_DNOW, input_stack, paint_station_dust_now
+    H, W = 32, 48
+    ij = np.array([[10, 10], [10, 11], [25, 40], [5, 5]])
+    blk = paint_station_dust_now(ij, np.array([99.0, 3.0, np.nan, 0.0], np.float32), (H, W))
+    assert blk[0, 10, 10] == 0.5 and blk[1, 10, 10] == 1 and blk[1, 25, 40] == 0 and blk[0, 5, 5] == 1
+    s = dict(x=np.zeros((62, H, W), np.float16), st_ij=ij, st_now=np.zeros(4, np.int8), st_dvis_now=np.array([99.0, 3.0, np.nan, 0.0], np.float32))
+    x = input_stack(s, None, True, False, 0, "xr", False, None, True)
+    assert x.shape[0] == N_CH_IN_DNOW and x[CH["dust_now"]][0, 10, 10] == 0.5 and not x[CH["wind"]].any()

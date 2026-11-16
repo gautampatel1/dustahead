@@ -1,0 +1,19 @@
+# Experiment config (v16b): the BLOWING-DUST product on its own. v16 kept the epoch-1 checkpoint (chosen on the strict
+# score) and its blowing-dust head was below blowing-dust persistence, because the model could not see what
+# persistence uses: the stations' current dust reports at any severity. Here (1) channels.dust_now paints that
+# state, (2) only the blowing-dust term is trained, for a fixed 8 epochs (no checkpoint picking on another target).
+# Answers: how good can a "blowing dust, visibility <= 3 mi" alert be, overall and on onsets?
+channels:
+  hrrr_fcst: 6
+  dust_now: 2
+model:
+  gate_channels: [static, physics]
+loss:
+  w_focal: 0.0
+  w_fss: 0.0
+  w_station: 0.0
+  w_tier: 1.0
+  tier_vis_mi: 3.0
+  tier_pos_weight: 5.0
+train:
+  fixed_epochs: 8
