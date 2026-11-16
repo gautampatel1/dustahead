@@ -252,3 +252,25 @@ def test_add_wind_reads_event_file_in_nanoseconds(tmp_path):
     assert mod.add_one(f).startswith("ok 1 now")
     z = np.load(f)
     assert z["st_wnow"][0, 0] == 20 and z["st_wnow"][0, 1] == 10 and z["st_wy"][0].tolist() == [41.0, 35.0, 15.0]
+
+
+def test_dust_tiers_from_event_file(tmp_path):
+    """22_add_dust_tiers: dust-coded reports give their visibility, other reports 99, no report NaN; the state at t0
+    uses only reports at or before t0."""
+    import importlib.util
+    import numpy as np
+    import pandas as pd
+    from pathlib import Path
+    spec = importlib.util.spec_from_file_location("add_tiers", Path(__file__).resolve().parents[1] / "scripts" / "22_add_dust_tiers.py")
+    mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+    (tmp_path / "events").mkdir(); (tmp_path / "val").mkdir()
+    t = pd.to_datetime(["2025-02-12 22:00", "2025-02-12 22:07", "2025-02-12 22:20", "2025-02-12 22:36"], utc=True)
+    pd.DataFrame(dict(station="0E0", valid=t.astype(str), vsby=[10, 2.5, 0.5, 6], dust_code=[False, True, True, False])
+                 ).to_csv(tmp_path / "events" / "dust_x_1.csv", index=False)
+    f = tmp_path / "val" / "dust_x_1_20250212T2205.npz"
+    np.savez(f, st_ij=np.array([[5, 7], [9, 9]], np.int16), st_src=np.zeros(2, np.int8), t0=np.datetime64("2025-02-12T22:05"))
+    mod._G.update(cfg={"time": {"leads_min": [15, 30, 60]}}, labels=tmp_path, cell={(5, 7): ["0E0"]}, force=False, ev={})
+    assert mod.add_one(f).startswith("ok 1 targets, 1 blowing dust")
+    z = np.load(f)
+    assert z["st_dvis_now"][0] == 99 and z["st_dvis"][0, 0] == 0.5 and z["st_dvis"][0, 1] == 99 and np.isnan(z["st_dvis"][0, 2])
+    assert np.isnan(z["st_dvis"][1]).all() and np.isnan(z["st_dvis_now"][1])

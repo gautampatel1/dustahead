@@ -1,0 +1,15 @@
+# Experiment config (v16): the v11f recipe plus a BLOWING-DUST head: P(a dust weather code with visibility <= 3 mi at
+# t0 + lead), multiplied by the same ground gate as the main output.
+# Why (16 Nov analysis): wind is necessary but nowhere near sufficient - even a perfect forecast of the station wind
+# gives a strict-dust onset CSI of 0.01-0.03, because only ~1 % of strong-wind station-times meet the strict label.
+# But 17 % of them carry a dust code: most "false alarms" are real, weaker dust. The lower-severity event has 2,490
+# onsets against 379, is the same physics, and is itself worth warning about. The strict label and the primary metric
+# are unchanged. Needs st_dvis: python scripts/22_add_dust_tiers.py --workers 6
+channels:
+  hrrr_fcst: 6
+model:
+  gate_channels: [static, physics]
+loss:
+  w_tier: 1.0
+  tier_vis_mi: 3.0
+  tier_pos_weight: 5.0

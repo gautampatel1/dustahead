@@ -139,3 +139,20 @@ def test_wind_first_training_and_wind_scores(tmp_path):
     from dustahead.eval.evaluate import run as evaluate
     rep = evaluate(run_dir / "best.pt", cfg, "val", baselines=(), device="cpu", calibrate_on=None)
     assert "wind" in rep and rep["wind"]["all_30"]["n"] > 0 and "persistence_csi" in rep["wind"]["onset_60"]
+
+
+def test_blowing_dust_head_training_and_scores(tmp_path):
+    """v16 recipe on synthetic data: the blowing-dust head trains through the gate and evaluation reports its skill."""
+    import copy
+    cfg = copy.deepcopy(load_config())
+    cfg["paths"].update(samples=str(tmp_path / "samples"), runs=str(tmp_path / "runs"), static=str(tmp_path / "static"))
+    cfg["train"].update(batch_size=2, num_workers=0, crop=[48, 64], amp=False, fixed_epochs=1)
+    cfg["model"].update(base_channels=8, depth=2, gate_channels=["static", "physics"])
+    cfg["channels"].update(hrrr_fcst=6)
+    cfg["loss"].update(w_tier=1.0, tier_vis_mi=3.0)
+    cfg["eval"]["bootstrap"] = 20
+    make_synthetic_dataset(cfg["paths"]["samples"], Grid.from_config(cfg), n=6, small=True)
+    run_dir = train(cfg, "gated_unet", tmp_path / "runs" / "tier", device="cpu")
+    from dustahead.eval.evaluate import run as evaluate
+    rep = evaluate(run_dir / "best.pt", cfg, "val", baselines=(), device="cpu", calibrate_on=None)
+    assert "tier" in rep and rep["tier"]["all_30"]["n"] > 0 and "csi_ci" in rep["tier"]["onset_60"]

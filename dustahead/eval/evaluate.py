@@ -45,6 +45,12 @@ def collect(model, ds: DustDataset, device, baselines=(), with_forecast: bool = 
             wind_out.setdefault("p", []).append(pw[:, s["st_ij"][:, 0].astype(int), s["st_ij"][:, 1].astype(int)].T)
             wind_out.setdefault("kt", []).append(s["st_wy"].astype(np.float32))
             wind_out.setdefault("now", []).append(s["st_wnow"][:, 0].astype(np.float32))
+        tp = getattr(getattr(model, "unet", None), "last_tier_p", None)
+        if wind_out is not None and tp is not None and "st_dvis" in s:      # blowing-dust head (same out dict)
+            tpn = tp[0].float().cpu().numpy()
+            wind_out.setdefault("tier_p", []).append(tpn[:, s["st_ij"][:, 0].astype(int), s["st_ij"][:, 1].astype(int)].T)
+            wind_out.setdefault("dvis", []).append(s["st_dvis"].astype(np.float32))
+            wind_out.setdefault("dvis_now", []).append(s["st_dvis_now"].astype(np.float32))
         preds = {"model": p, **{b: (BASELINES[b](x) if b in BASELINES else SAMPLE_BASELINES[b](s)) for b in baselines}}
         ij, sy = s["st_ij"].astype(int), s["st_y"].astype(int)
         for name, pp in preds.items():
@@ -75,6 +81,26 @@ def wind_scores(p: np.ndarray, kt: np.ndarray, now: np.ndarray, leads, thr_kt: f
             out[f"{tag}_{lead}"] = dict(csi_best=best["csi"], thr=best["thr"], pod=best["pod"], far=best["far"],
                                         n_pos=int(y[m].sum()), n=int(m.sum()),
                                         persistence_csi=station_scores(pers[m], y[m], 0.5)["csi"])
+    return out
+
+
+def tier_scores(p, dvis, dvis_now, y, gen, ev, leads, vis_mi: float, B: int) -> dict:
+    """Verification of the blowing-dust head. Event = a dust weather code with visibility <= vis_mi at t0 + lead (or a
+    strict dust label). `all`: every station-time with a report; `onset`: no strict dust within 50 km at t0 (`gen`)
+    and the station itself not reporting blowing dust at t0, so persistence scores zero by construction."""
+    out = dict(vis_mi=vis_mi)
+    now_dusty = np.nan_to_num(dvis_now, nan=99.0) <= vis_mi
+    for l, lead in enumerate(leads):
+        ok = np.isfinite(dvis[:, l]) | (y[:, l] >= 0)
+        t = ((np.nan_to_num(dvis[:, l], nan=99.0) <= vis_mi) | (y[:, l] == 1)).astype(int)
+        for tag, m in (("all", ok), ("onset", ok & gen & ~now_dusty)):
+            best = max((dict(station_scores(p[m, l], t[m], th), thr=float(th)) for th in np.arange(0.05, 0.96, 0.05)),
+                       key=lambda z: -1 if np.isnan(z["csi"]) else z["csi"])
+            r = dict(csi_best=best["csi"], thr=best["thr"], pod=best["pod"], far=best["far"], n_pos=int(t[m].sum()), n=int(m.sum()),
+                     persistence_csi=station_scores(now_dusty[m].astype(float), t[m], 0.5)["csi"])
+            if tag == "onset":
+                r["csi_ci"] = event_bootstrap(p[m, l], t[m], ev[m], "csi", B, best["thr"])
+            out[f"{tag}_{lead}"] = r
     return out
 
 
@@ -146,6 +172,10 @@ def run(ckpt: str | Path, cfg: dict, split: str = "test", baselines=("persistenc
     if wind_out.get("p"):       # wind head: skill at "peak wind >= wind_kt at t0 + lead", against wind persistence
         report["wind"] = wind_scores(np.concatenate(wind_out["p"]), np.concatenate(wind_out["kt"]),
                                      np.concatenate(wind_out["now"]), leads, float(ck["cfg"].get("loss", {}).get("wind_kt", 30.0)))
+    if wind_out.get("tier_p"):  # blowing-dust head: skill at "dust code and visibility <= tier_vis_mi at t0 + lead"
+        report["tier"] = tier_scores(np.concatenate(wind_out["tier_p"]), np.concatenate(wind_out["dvis"]),
+                                     np.concatenate(wind_out["dvis_now"]), y, gen, ev, leads,
+                                     float(ck["cfg"].get("loss", {}).get("tier_vis_mi", 3.0)), B)
     pv = {}
     for name in baselines:
         l = leads.index(30)
@@ -155,11 +185,15 @@ def run(ckpt: str | Path, cfg: dict, split: str = "test", baselines=("persistenc
     # per-station predictions for offline analysis (hybrids, genesis threshold sweeps) without re-running inference
     extra = dict(wind_p=np.concatenate(wind_out["p"]), wind_kt=np.concatenate(wind_out["kt"]),
                  wind_now=np.concatenate(wind_out["now"])) if wind_out.get("p") else {}     # wind head, same row order
+    if wind_out.get("tier_p"):
+        extra.update(tier_p=np.concatenate(wind_out["tier_p"]), dvis=np.concatenate(wind_out["dvis"]), dvis_now=np.concatenate(wind_out["dvis_now"]))
     np.savez_compressed(Path(ckpt).parent / f"eval_{split}_preds.npz", y=y, genesis=gen, event=ev, src=src,
                         **{f"p_{n}": v for n, v in preds.items()}, **extra)
     out = Path(ckpt).parent / f"eval_{split}.json"
     out.write_text(json.dumps(report, indent=1, default=float))
     print(json.dumps({k: v for k, v in report.items() if k != "models"}, indent=1, default=float))
+    if "tier" in report:
+        print("blowing-dust head", {k: (round(v["csi_best"], 3), round(v["pod"], 2), round(v["far"], 2), v["n_pos"]) for k, v in report["tier"].items() if isinstance(v, dict)})
     if "wind" in report:
         print("wind head", {k: (round(v["csi_best"], 3), round(v["persistence_csi"], 3), v["n_pos"]) for k, v in report["wind"].items() if isinstance(v, dict)})
     for name, r in report["models"].items():

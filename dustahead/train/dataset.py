@@ -88,6 +88,8 @@ class DustDataset(Dataset):
         self.with_wind = wants_wind(cfg or {})              # paint the station wind block (channels.wind)
         # wind target for the wind head: peak wind (max of sustained and gust) >= loss.wind_kt at t0 + lead
         self.wind_kt = float((cfg or {}).get("loss", {}).get("wind_kt", 30.0))
+        # blowing-dust target: a dust weather code with visibility <= loss.tier_vis_mi (st_dvis from 22_add_dust_tiers.py)
+        self.tier_vis = float((cfg or {}).get("loss", {}).get("tier_vis_mi", 3.0))
         # label sources the LOSS may see (label.train_sources; codes as in scripts/16_extend_labels.py: 0 asos, 1 rwis,
         # 2 vis_other, 3 pm10). Extended stations stay in the sample for evaluation and for the station channel, but
         # their discs get weight 0 and their station rows -1 in training when their source is not listed.
@@ -123,6 +125,12 @@ class DustDataset(Dataset):
             wy = np.where(np.isfinite(wk), (wk >= self.wind_kt).astype(np.int64), -1)
         else:
             wy = np.full(sy.shape, -1, np.int64)
+        if "st_dvis" in s:                  # (S, L) visibility of a dust-coded report (99 = report without dust), NaN = none
+            dv = s["st_dvis"].astype(np.float32)
+            ty = np.where(np.isfinite(dv), (dv <= self.tier_vis).astype(np.int64), -1)
+            ty = np.where(sy == 1, 1, ty)   # a strict dust label is blowing dust by definition
+        else:
+            ty = np.full(sy.shape, -1, np.int64)
         if self.train_src is not None and "st_src" in s and (s["st_src"] != 0).any():
             keep_st = np.isin(s["st_src"], list(self.train_src))
             if not keep_st.all():
@@ -155,6 +163,7 @@ class DustDataset(Dataset):
             keep = (ij[:, 0] >= 0) & (ij[:, 0] < ch) & (ij[:, 1] >= 0) & (ij[:, 1] < cw)
             sy = np.where(keep[:, None], sy, -1)
             wy = np.where(keep[:, None], wy, -1)
+            ty = np.where(keep[:, None], ty, -1)
             ij = np.clip(ij, 0, [ch - 1, cw - 1])
         S = ij.shape[0]
         ij_p = np.zeros((MAX_STATIONS, 2), np.int64)
@@ -162,9 +171,11 @@ class DustDataset(Dataset):
         gen_p = np.zeros(MAX_STATIONS, bool)
         wy_p = np.full((MAX_STATIONS, sy.shape[1]), -1, np.int64)
         wy_p[:S] = wy[:MAX_STATIONS]
+        ty_p = np.full((MAX_STATIONS, sy.shape[1]), -1, np.int64)
+        ty_p[:S] = ty[:MAX_STATIONS]
         ij_p[:S] = ij[:MAX_STATIONS]
         sy_p[:S] = sy[:MAX_STATIONS]
         gen_p[:S] = gen[:MAX_STATIONS]
         return dict(x=torch.from_numpy(x), y=torch.from_numpy(y), w=torch.from_numpy(w),
-                    st_ij=torch.from_numpy(ij_p), st_y=torch.from_numpy(sy_p), st_gen=torch.from_numpy(gen_p), st_wy=torch.from_numpy(wy_p),
+                    st_ij=torch.from_numpy(ij_p), st_y=torch.from_numpy(sy_p), st_gen=torch.from_numpy(gen_p), st_wy=torch.from_numpy(wy_p), st_ty=torch.from_numpy(ty_p),
                     genesis=torch.tensor(bool(s["genesis"])), idx=k)

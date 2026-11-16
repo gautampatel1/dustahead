@@ -157,7 +157,7 @@ def train(cfg: dict, model_name: str | None = None, run_dir: str | Path | None =
             with torch.autocast(device_type="cuda" if device == "cuda" else "cpu", dtype=amp_dtype, enabled=(T["amp"] and device == "cuda")):
                 p = model(b["x"])
             unet = getattr(model, "unet", None)
-            loss, parts = crit(p.float(), b, getattr(unet, "last_aux", None), getattr(unet, "last_wind", None))
+            loss, parts = crit(p.float(), b, getattr(unet, "last_aux", None), getattr(unet, "last_wind", None), getattr(unet, "last_tier_p", None))
             if not torch.isfinite(loss):
                 n_skipped += 1
                 opt.zero_grad(set_to_none=True)

@@ -68,7 +68,11 @@ class DustLoss(torch.nn.Module):
         self.w_wind = float(L.get("w_wind", 0.0))
         self.wind_pos_w = float(L.get("wind_pos_weight", 3.0))
 
-    def forward(self, p, batch, aux_logits=None, wind_logits=None):
+        # blowing-dust head (model.unet.last_tier_p): station BCE against "dust code and visibility <= tier_vis_mi"
+        self.w_tier = float(L.get("w_tier", 0.0))
+        self.tier_pos_w = float(L.get("tier_pos_weight", 5.0))
+
+    def forward(self, p, batch, aux_logits=None, wind_logits=None, tier_p=None):
         y, w = batch["y"], batch["w"]
         lf = focal_loss(p, y, w, self.a, self.g)
         ls = 1 - fss(p, y, w, self.n)
@@ -85,4 +89,8 @@ class DustLoss(torch.nn.Module):
             lw = station_bce(torch.sigmoid(wind_logits.float()), batch["st_ij"], batch["st_wy"], self.wind_pos_w)
             total = total + self.w_wind * lw
             parts["wind"] = lw.item()
+        if self.w_tier and tier_p is not None and "st_ty" in batch:
+            lt = station_bce(tier_p.float(), batch["st_ij"], batch["st_ty"], self.tier_pos_w)
+            total = total + self.w_tier * lt
+            parts["tier"] = lt.item()
         return total, parts

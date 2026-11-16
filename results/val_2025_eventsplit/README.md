@@ -543,3 +543,51 @@ Reading:
   targets were only sharing features, nothing made the dust output USE the wind output.
 - Next (v15c): train the sky branch on wind alone for a fixed 8 epochs, then add the dust terms on top
   (`configs/wind_pre_v15c.yaml`, `wind_v15c.yaml`). v15b (wind head without wind inputs) is the control.
+
+### v15b (wind head, no wind inputs) and the wind-only model (`wind_pre_v15c`, 8 fixed epochs)
+
+| | CSI best +15 / +30 / +60 | onset CSI at 0.5 | wind-onset CSI +15 / +30 / +60 |
+|---|---|---|---|
+| gated_unet v15a | 0.503 / 0.388 / 0.209 | 0.030 / 0.059 / 0.053 | 0.301 / 0.280 / 0.281 |
+| gated_unet v15b | 0.500 / 0.374 / 0.209 | 0.032 / 0.053 / 0.057 | 0.310 / 0.302 / 0.305 |
+| wind only (no dust terms) | — | — | **0.347 / 0.324 / 0.321** (POD 0.59 / 0.55 / 0.54, FAR 0.55) |
+
+The station-wind inputs add nothing over the head alone (v15a against v15b), and neither helps dust.
+
+### Why wind-first cannot be the breakthrough: wind is necessary, not sufficient (16 Nov)
+
+Validation fold 0, ASOS onset rows (no dust within 50 km at t0), from `runs/wind_pre_v15c/eval_val_preds.npz`:
+
+| | +15 | +30 | +60 |
+|---|---|---|---|
+| dust onsets (strict label) | 46 | 83 | 130 |
+| of these, observed peak wind >= 30 kt at that time | 87 % | 83 % | 85 % |
+| of these, wind forecast >= 0.5 at t0 | 78 % | 70 % | 77 % |
+| station-times with observed wind >= 30 kt | 6,848 | 8,385 | 8,294 |
+| share of those that are strict dust | 0.6 % | 0.8 % | 1.3 % |
+| dust-onset CSI of a PERFECT wind forecast (alert when wind >= 40 kt) | 0.019 | 0.022 | 0.033 |
+| dust-onset CSI of v8 / v11f (for comparison) | 0.052 / 0.060 | 0.081 / 0.076 | 0.096 / 0.104 |
+
+- The sky branch already sees the outflow: the wind forecast fires ahead of three in four dust onsets.
+- Knowing the wind exactly would still give a dust alert that is wrong 97-99 times in 100. The existing models are
+  already three to five times better than a perfect wind forecast. What is missing is not "is an outflow coming" but
+  "will this outflow lower visibility to a mile at this station".
+
+### What the strict label hides (all 544 event days, ASOS reports)
+
+| | reports | onsets (60-min gap) |
+|---|---|---|
+| strict label (<= 1 mi, dust code, warning / Storm Events cross-check) | 2,222 | 379 |
+| dust code and visibility <= 1 mi, any cross-check | 3,879 | — |
+| dust code and visibility <= 3 mi | 15,643 | 2,490 |
+| dust code and visibility <= 6 mi | 33,275 | 5,351 |
+| any dust code | 35,531 | 5,547 |
+| peak wind >= 30 kt | 96,596 | 13,596 |
+| peak wind >= 30 kt with a dust code | 16,587 (17 %) | — |
+| peak wind >= 30 kt with the strict label | 1,766 (1.8 %) | — |
+
+- Most of what the strict benchmark counts as a false alarm in strong wind is real, weaker dust: 17 % of strong-wind
+  reports carry a dust code, 1.8 % meet the strict label.
+- The lower-severity event (dust code, visibility <= 3 mi) has 6.6 times the onsets and is the same physics.
+- Next (v16, `configs/tier_v16.yaml`): a blowing-dust head on that event, through the same gate, as a second training
+  target and as a second product tier with its own verification. The strict label and the primary metric do not change.
