@@ -231,3 +231,24 @@ def test_station_wind_uses_only_reports_up_to_t0():
     assert tgt[0] == 45 and tgt[1] == 38 and tgt[2] == 20
     now2, tgt2 = mod.station_wind(series, ["KZZZ"], t0, [15, 30, 60])
     assert np.isnan(now2).all() and np.isnan(tgt2).all()
+
+
+def test_add_wind_reads_event_file_in_nanoseconds(tmp_path):
+    """20_add_wind on a real-shaped event file: station ids stay strings ("0E0") and times are nanoseconds whatever
+    unit pandas parses them in, so the stored sample gets finite wind."""
+    import importlib.util
+    import numpy as np
+    import pandas as pd
+    from pathlib import Path
+    spec = importlib.util.spec_from_file_location("add_wind2", Path(__file__).resolve().parents[1] / "scripts" / "20_add_wind.py")
+    mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+    (tmp_path / "events").mkdir(); (tmp_path / "val").mkdir()
+    t = pd.date_range("2025-02-12 21:00", periods=8, freq="20min", tz="UTC")
+    pd.DataFrame(dict(station="0E0", valid=t.astype(str), sknt=[5, 8, 10, 12, 30, 28, 15, 9], gust=[np.nan] * 3 + [20, 41, 35, np.nan, np.nan],
+                      tmpf=[70, 70, 69, 68, 60, 59, 59, 58])).to_csv(tmp_path / "events" / "dust_x_1.csv", index=False)
+    f = tmp_path / "val" / "dust_x_1_20250212T2205.npz"
+    np.savez(f, st_ij=np.array([[5, 7]], np.int16), st_src=np.zeros(1, np.int8), t0=np.datetime64("2025-02-12T22:05"))
+    mod._G.update(cfg={"time": {"leads_min": [15, 30, 60]}}, labels=tmp_path, cell={(5, 7): ["0E0"]}, force=False, ev={})
+    assert mod.add_one(f).startswith("ok 1 now")
+    z = np.load(f)
+    assert z["st_wnow"][0, 0] == 20 and z["st_wnow"][0, 1] == 10 and z["st_wy"][0].tolist() == [41.0, 35.0, 15.0]

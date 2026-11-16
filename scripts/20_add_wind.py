@@ -46,8 +46,8 @@ def _event_series(event: str) -> dict:
     if event not in _G["ev"]:
         _G["ev"].clear()                       # samples arrive grouped by event: keep one event in memory
         f = _G["labels"] / "events" / f"{event}.csv"
-        d = pd.read_csv(f, usecols=["station", "valid", "sknt", "gust", "tmpf"])
-        d["t"] = pd.to_datetime(d.valid, utc=True).astype("int64")
+        d = pd.read_csv(f, usecols=["station", "valid", "sknt", "gust", "tmpf"], dtype={"station": str})   # "0E0" is an id, not a float
+        d["t"] = pd.to_datetime(d.valid, utc=True).dt.as_unit("ns").astype("int64")     # nanoseconds whatever the pandas default unit
         d["pk"] = d[["sknt", "gust"]].max(axis=1)
         d = d[np.isfinite(d.pk)].sort_values("t")
         _G["ev"][event] = {s: (g.t.values, g.pk.values.astype(np.float32), g.tmpf.values.astype(np.float32))
@@ -88,7 +88,7 @@ def add_one(path):
             s = {k: z[k] for k in z.files}
         event = path.stem.rsplit("_", 1)[0]
         series = _event_series(event)
-        t0_ns = int(pd.Timestamp(s["t0"][()]).tz_localize("UTC").value)
+        t0_ns = int(pd.Timestamp(s["t0"][()]).tz_localize("UTC").as_unit("ns").value)
         leads = _G["cfg"]["time"]["leads_min"]
         S = len(s["st_ij"])
         src = s["st_src"] if "st_src" in s else np.zeros(S, int)
