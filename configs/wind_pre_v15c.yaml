@@ -1,0 +1,19 @@
+# Experiment config (v15c, stage 1): train the sky branch on WIND ONLY. v15a showed the wind head learns the outflow
+# (wind-onset CSI 0.30 / 0.28 / 0.28 where wind persistence scores 0) but the dust score peaked at epoch 1 and that
+# checkpoint was kept, before the wind features had matured. Here the dust terms are switched off and the run has a
+# fixed length, so the sky branch learns "an outflow is arriving" from all ~13,600 wind onsets first.
+# Stage 2 (wind_v15c.yaml) then adds the dust terms on top of these weights.
+channels:
+  hrrr_fcst: 6
+  wind: 4
+model:
+  gate_channels: [static, physics]
+loss:
+  w_focal: 0.0
+  w_fss: 0.0
+  w_station: 0.0
+  w_wind: 1.0
+  wind_kt: 30.0
+  wind_pos_weight: 3.0
+train:
+  fixed_epochs: 8

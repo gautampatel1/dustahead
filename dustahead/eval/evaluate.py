@@ -153,8 +153,10 @@ def run(ckpt: str | Path, cfg: dict, split: str = "test", baselines=("persistenc
     report["model_vs_baselines_p_genesis30"] = pv
     report["holm_corrected"] = holm(pv) if pv else {}
     # per-station predictions for offline analysis (hybrids, genesis threshold sweeps) without re-running inference
+    extra = dict(wind_p=np.concatenate(wind_out["p"]), wind_kt=np.concatenate(wind_out["kt"]),
+                 wind_now=np.concatenate(wind_out["now"])) if wind_out.get("p") else {}     # wind head, same row order
     np.savez_compressed(Path(ckpt).parent / f"eval_{split}_preds.npz", y=y, genesis=gen, event=ev, src=src,
-                        **{f"p_{n}": v for n, v in preds.items()})
+                        **{f"p_{n}": v for n, v in preds.items()}, **extra)
     out = Path(ckpt).parent / f"eval_{split}.json"
     out.write_text(json.dumps(report, indent=1, default=float))
     print(json.dumps({k: v for k, v in report.items() if k != "models"}, indent=1, default=float))

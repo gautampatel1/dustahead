@@ -504,3 +504,42 @@ epoch, no validation split. Full table and reading: `results/test_2026/README.md
   they had trained on. `eval/evaluate.py` now keeps a final model's scores raw (T = 1; commit 09e130e) and both were
   re-scored (job 98). Temperature does not move a 0.5 cutoff or the onset p-values; it moved best-threshold CSI by at
   most 0.005 through the threshold grid. The numbers above are the raw ones.
+
+## 15–16 Nov — v15: "wind first" (station wind as input and as a second target)
+
+Idea: every run so far is limited by labelled dust onsets (379 in the 544 event days). A dust storm is an outflow
+crossing erodible ground, and the same 85 ASOS stations (Automated Surface Observing System) record **13,596
+strong-wind onsets** (peak wind, the larger of sustained wind and gust, reaching 30 kt after an hour below it) in those
+days; 86 % of dust reports come with at least 25 kt. `scripts/20_add_wind.py` adds to every sample the station wind at
+t0 (inputs, reports at or before t0 only) and the peak wind at t0 + lead (targets); `loss.w_wind` adds a wind head on
+the sky branch; `channels.wind` paints the current station wind as four input channels.
+
+### v15a = v11f recipe + station-wind inputs + wind head (`configs/wind_v15a.yaml`), best epoch 1 of 10
+
+Validation fold 0, ASOS stations, v8 and v11f on the same (extended-label) benchmark:
+
+| | CSI best +15 / +30 / +60 | onset CSI at 0.5 | onset POD at 0.5 | Holm p vs persistence |
+|---|---|---|---|---|
+| station persistence | 0.443 / 0.354 / 0.191 | 0 | 0 | — |
+| gated_unet v8 | 0.510 / 0.393 / 0.215 | 0.052 / 0.081 / 0.096 | 0.20 / 0.30 / 0.27 | 0.056 |
+| gated_unet v11f | 0.490 / 0.359 / 0.214 | 0.060 / 0.076 / 0.104 | 0.11 / 0.27 / 0.32 | 0.048 |
+| **gated_unet v15a** | 0.503 / 0.388 / 0.209 | 0.030 / 0.059 / 0.053 | 0.07 / 0.13 / 0.10 | 0.12 |
+
+The wind head itself (event: peak wind >= 30 kt at t0 + lead; CSI at the best threshold):
+
+| | +15 | +30 | +60 |
+|---|---|---|---|
+| all station-times: model / wind persistence | 0.490 / 0.418 | 0.454 / 0.383 | 0.421 / 0.326 |
+| wind onsets (below 30 kt at t0; persistence = 0): CSI | 0.301 | 0.280 | 0.281 |
+| wind onsets: POD / FAR | 0.57 / 0.61 | 0.51 / 0.62 | 0.50 / 0.61 |
+| wind-onset positives | 5,028 | 4,832 | 5,217 |
+
+Reading:
+- **The outflow is predictable.** The model catches half of all strong-wind onsets an hour ahead with a false alarm
+  ratio of 0.61. Dust-onset detection has never been above CSI 0.10 with FAR about 0.9. The sky branch can see the
+  wind coming; that part of the problem is far easier than we had been able to show with dust labels alone.
+- **The dust output did not benefit in this run** (overall equal to v8, onset worse than v8 and v11f). The dust score
+  peaked at epoch 1 and that checkpoint was kept, when the wind head had had one pass over its labels; the two
+  targets were only sharing features, nothing made the dust output USE the wind output.
+- Next (v15c): train the sky branch on wind alone for a fixed 8 epochs, then add the dust terms on top
+  (`configs/wind_pre_v15c.yaml`, `wind_v15c.yaml`). v15b (wind head without wind inputs) is the control.
