@@ -1,0 +1,12 @@
+# Reproducibility check of v14b (radar inputs, frames at t0-20 / t0-10 / t0): same recipe, a third and fourth seed (11, 23) for a radar seed ensemble.
+# 17 Nov: the IEM archive shows the N0Q mosaic stamped T is written about 2 minutes BEFORE T (n0q_202508260000.png
+# was written 23:58 UTC), so the t0 frame holds no future data and is available at t0. The suspected timestamp
+# artefact is ruled out; what remains is whether v14b's onset gain (one run, one fold, best epoch 12) repeats, or
+# was run-to-run variance (v14c and v14d both stopped at epoch 1).
+channels:
+  hrrr_fcst: 6
+  radar: 3
+model:
+  gate_channels: [static, physics]
+train:
+  seed: 11
