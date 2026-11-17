@@ -760,3 +760,32 @@ against 0.498 / 0.429 / 0.323. The claim that holds on both folds and on 2026 is
 **the models add skill on onsets, where persistence has none (pooled p < 0.001), and do not improve on persistence
 for dust that already exists.** 2026 looked better overall because 72 % of its positives were onsets. Any summary
 (deck, report, paper) must say this.
+
+## 17 Nov (evening) — four radar seeds: the radar gain is not established; seed variance is the size of the effects
+
+Fold 0, radar recipe v14b with four random seeds against the no-radar recipe v11f (one seed). ASOS, onset CSI at 0.5.
+
+| | +15 | +30 | +60 |
+|---|---|---|---|
+| no radar (v11f, seed 42) | 0.060 | 0.076 | 0.104 |
+| radar, seed 42 (v14b) | 0.098 | 0.099 | 0.135 |
+| radar, seed 7 | 0.065 | 0.090 | 0.111 |
+| radar, seed 11 | 0.000 | 0.053 | 0.068 |
+| radar, seed 23 | 0.060 | 0.067 | 0.120 |
+| **radar, mean of four seeds** | **0.056** | **0.077** | **0.109** |
+| radar, range over seeds | 0.000-0.098 | 0.053-0.099 | 0.068-0.135 |
+
+All cases, CSI at the best threshold: radar seeds 0.440-0.495 / 0.356-0.389 / 0.221-0.251 against 0.490 / 0.359 /
+0.214. The max ensemble of the four radar seeds is no better than its best member
+(`results/radar_repro/val_ensemble_radar_4seeds.json`).
+
+Reading:
+- **Averaged over seeds, radar gives no onset gain on fold 0** (0.056 / 0.077 / 0.109 against 0.060 / 0.076 / 0.104).
+  The first run (seed 42) was the luckiest of four. The pooled two-fold result this morning (p < 0.001 at +15) compared
+  ONE radar run with ONE no-radar run per fold: its bootstrap resamples events, not training runs, so it cannot see
+  this variance. That significance claim is withdrawn; radar is "not shown", neither confirmed nor refuted.
+- **The same caveat applies to every single-run comparison in this file** (v8 against v11f, v15, v16, the 7 Nov radar
+  runs). Onset CSI at 0.5 moves by 0.03-0.10 between seeds of one recipe, which is as large as any difference
+  between recipes reported here. Only two onset results do not depend on it: every run scores above persistence's
+  zero, and no run has reached 0.15.
+- From here on a recipe is compared with at least three seeds per arm, on the mean and the spread.
