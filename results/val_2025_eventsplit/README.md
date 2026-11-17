@@ -665,3 +665,65 @@ perfect-wind test (a perfect wind forecast gives onset CSI 0.02-0.03) this says 
 is trained but what the inputs contain about WHERE a strong wind will lower visibility: surface state and the
 position of the dust wall between stations. Further gains need new observations (radar with verified timing,
 road-level visibility sensors, a larger domain), not further targets on the same inputs.
+
+## 17 Nov — radar re-opened: the timing is clean and the onset gain repeats
+
+**Timing.** v14 was closed on 8 Nov because the gain existed only with the frame stamped t0, which looked like a
+timestamp artefact. The IEM (Iowa Environmental Mesonet) archive listing settles it: the N0Q mosaic stamped T is
+written about two minutes BEFORE T (`n0q_202508260000.png` written 23:58 UTC, and so on every 5 minutes that day).
+The t0 frame holds no data from after t0 and a live system has it at t0. (Checked on one day's listing.)
+
+**Reproducibility** (`scripts/23_pair_models.py`, `results/radar_repro/`). Radar recipe v14b against the same recipe
+without radar (v11f), same rows, ASOS stations, event bootstrap B = 1000. Onset CSI at 0.5; p = P(radar <= no radar).
+
+| | +15 | +30 | +60 |
+|---|---|---|---|
+| fold 0, v14b / v11f | 0.098 / 0.060 (p 0.039) | 0.099 / 0.076 (p 0.21) | 0.135 / 0.104 (p 0.069) |
+| fold 0, v14b seed 7 / v11f | 0.065 / 0.060 (p 0.33) | 0.090 / 0.076 (p 0.28) | 0.111 / 0.104 (p 0.24) |
+| **both folds pooled (all 2025 out of sample)** | **0.062 / 0.027 (p < 0.001)** | **0.081 / 0.045 (p 0.016)** | **0.097 / 0.067 (p 0.034)** |
+| pooled difference, 95 % interval | [0.015, 0.054] | [0.002, 0.072] | [−0.002, 0.061] |
+| pooled onset positives | 204 | 333 | 467 |
+
+CSI at the best threshold, all ASOS station-times, pooled: 0.417 / 0.379 / 0.280 with radar against
+0.457 / 0.378 / 0.283 without (p 0.95 / 0.49 / 0.58).
+
+Reading:
+- **Radar helps on onsets and the effect is significant over all of 2025**: +0.03 to +0.035 CSI at every lead, roughly
+  1.5 to 2 times the no-radar onset score. It is not the +53-73 % single-run jump of 7 Nov: a second seed on fold 0
+  gives a smaller, non-significant gain, so about half of that first result was run-to-run variance.
+- **It costs at +15 overall** (0.417 against 0.457) and is neutral at +30 and +60: radar moves skill toward new storms,
+  not toward dust that already exists.
+- Caveats: one run per recipe on fold 1; thresholds at 0.5 after each model's own temperature scaling.
+- v14c / v14d (older newest frame, no gain) each stopped at epoch 1 and were single runs; they are not evidence
+  against the t0 frame. Radar is the first input since the static gate with a significant onset effect.
+
+## 17 Nov — alert lead time against the NWS Dust Storm Warning (`scripts/24_warning_lead_time.py`)
+
+Every strict dust onset at an ASOS station in the 2025 validation events, both folds, each scored by the model that
+did not train on it: 133 onsets in 129 events (31 monsoon, June-September). Model alert = P >= threshold at any lead
+for the station's cell at a forecast time before the onset, within 90 min. NWS (National Weather Service) = the
+first Dust Storm Warning whose polygon (or county text) covers the station around the onset. `results/lead_time/`.
+
+| | NWS warning | v8 at 0.80 (product) | v8 at 0.50 | radar v14b at 0.50 |
+|---|---|---|---|---|
+| alerted BEFORE dust reached the station | 56 % | 14 % | 34 % | 41 % |
+| median lead when alerted before | 67 min | 68 min | 70 min | 68 min |
+| model earlier than NWS | — | 8 % | 20 % | 24 % |
+| NWS earlier than model | — | 53 % | 47 % | 47 % |
+| neither ahead of the dust | 44 % | 39 % | 32 % | 29 % |
+| **either ahead of the dust** | 56 % | 61 % | 68 % | **71 %** |
+| monsoon onsets: alerted before / median lead | 58 % / 15 min | 6 % / 50 min | 32 % / 45 min | 26 % / 63 min |
+| station-time alerts with no dust within 60 min | — | 24 % | 41 % | 48 % |
+
+A warning exists for 76 % of the onsets but for a quarter of those it was issued after the dust had reached the
+station (median lead over all warned onsets 33 min). Of 298 (warning, ASOS station inside it) pairs, 55 % saw no
+strict dust at the station.
+
+Reading:
+- **The NWS is ahead more often than the model** at any threshold. The model does not replace the warning.
+- **The model adds advance notice where the warning had none**: with it, onsets with some warning ahead of the dust
+  rise from 56 % to 61 % (product threshold), 68 % (0.5) or 71 % (radar, 0.5).
+- **Monsoon storms are where the lead time differs**: the warning precedes the dust by a median 15 min, the model's
+  alerts, when it has one, by 45-63 min. It has one for a third of them at best.
+- Caveats: the strict label requires an NWS product or Storm Events entry near the report, so dust the NWS never
+  logged cannot count for the model; the 90-min window caps the model's lead, not the warning's; 31 monsoon onsets.
