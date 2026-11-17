@@ -727,3 +727,36 @@ Reading:
   alerts, when it has one, by 45-63 min. It has one for a third of them at best.
 - Caveats: the strict label requires an NWS product or Storm Events entry near the report, so dust the NWS never
   logged cannot count for the model; the 90-min window caps the model's lead, not the warning's; 31 monsoon onsets.
+
+## 17 Nov — theory "right about the area, wrong about the point": rejected (`scripts/25_area_verification.py`)
+
+Stored v8 predictions for all of 2025 (both folds, out of sample) re-scored with a neighbourhood rule: truth = strict
+dust at any ASOS station within R, forecast = highest station probability within R. CSI at the best threshold.
+
+| R | onset +15 / +30 / +60 (model) | onset FAR | onset, persistence | all cases: model / persistence at +30 |
+|---|---|---|---|---|
+| 0 km (point) | 0.047 / 0.058 / 0.074 | 0.93 / 0.92 / 0.91 | 0 | 0.402 / 0.429 |
+| 25 km | 0.042 / 0.057 / 0.076 | 0.95 / 0.93 / 0.89 | 0 | 0.447 / 0.479 |
+| 50 km | 0.095 / 0.121 / 0.123 | 0.50 / 0.83 / 0.76 | 0.124 / 0.123 / 0.079 | 0.439 / 0.470 |
+
+Relaxing the target to 25 km changes nothing; at 50 km the score rises only as much as persistence does (the onset
+definition's own 50 km radius). The false alarms are not near misses: the model is not predicting the right storm in
+the slightly wrong place. Closed.
+
+### Stated plainly: over all of 2025 no model beats station persistence on all cases
+
+Per fold, ASOS, CSI at the best threshold (+15 / +30 / +60):
+
+| | fold 0 (158 / 208 / 208 positives) | fold 1 (599 / 781 / 810 positives) |
+|---|---|---|
+| station persistence | 0.443 / 0.354 / 0.191 | **0.513 / 0.451 / 0.362** |
+| gated_unet v8 | **0.510 / 0.393 / 0.215** | 0.496 / 0.427 / 0.333 |
+| gated_unet v11f | 0.490 / 0.359 / 0.214 | 0.452 / 0.393 / 0.312 |
+| gated_unet v14b (radar) | 0.440 / 0.356 / 0.226 | 0.427 / 0.389 / 0.298 |
+
+Fold 0, the half every table above this section uses, is the smaller and more favourable half. On fold 1, with four
+times the positives, persistence is ahead of every model at every lead; pooled, v8 scores 0.479 / 0.402 / 0.296
+against 0.498 / 0.429 / 0.323. The claim that holds on both folds and on 2026 is narrower than "beats persistence":
+**the models add skill on onsets, where persistence has none (pooled p < 0.001), and do not improve on persistence
+for dust that already exists.** 2026 looked better overall because 72 % of its positives were onsets. Any summary
+(deck, report, paper) must say this.
