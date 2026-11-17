@@ -633,3 +633,35 @@ Reading:
   reports below the strict threshold.
 - Next: `channels.dust_now` paints those reports. v16b trains the blowing-dust target alone for 8 fixed epochs with
   that input (how good can the second tier be?); v16c is v16 with that input (does it help the strict benchmark?).
+
+### v16b (blowing-dust target alone, 8 fixed epochs, `channels.dust_now`) and v16c (v16 + `channels.dust_now`)
+
+Blowing-dust head (dust code and visibility <= 3 mi), CSI at the best threshold:
+
+| | all +15 / +30 / +60 | onset +15 / +30 / +60 | onset FAR |
+|---|---|---|---|
+| blowing-dust persistence | 0.456 / 0.356 / 0.288 | 0 | — |
+| v16 (no current-report input) | 0.300 / 0.304 / 0.273 | 0.099 / 0.122 / 0.124 | 0.84 / 0.75 / 0.75 |
+| v16c (with current-report input) | 0.368 / 0.339 / 0.278 | 0.083 / 0.121 / 0.125 | 0.84 / 0.79 / 0.81 |
+| v16b (target alone) | 0.067 / 0.077 / 0.082 | 0.010 / 0.018 / 0.027 | 0.99 / 0.98 / 0.97 |
+
+Strict benchmark, v16c (best epoch of 10): CSI best 0.505 / 0.389 / 0.221; onset at 0.5 0.036 / 0.056 / 0.069
+(all stations 0.028 [0.01, 0.05] / 0.049 [0.03, 0.07] / 0.063 [0.03, 0.09]); Holm p < 0.001 against persistence.
+
+Reading:
+- **v16b failed** and is not a product test: trained on station points of one target only, its loss fell
+  (0.123 -> 0.059) while validation skill collapsed. v16c shows the new input is sound, so the cause is the
+  single-target training without the pixel-level terms, not the data. Closed.
+- **The current-report input helps the blowing-dust output where dust already exists** (all: 0.30 -> 0.37 at +15) but
+  it still does not beat blowing-dust persistence overall, and onsets are unchanged (0.12, FAR about 0.8).
+- **Strict benchmark: no gain.** v16c equals v8 overall and is below it on onsets at 0.5, with tighter intervals.
+
+### Verdict on 15–16 Nov (v15a, v15b, v15c, v16, v16b, v16c)
+
+Six runs with two new kinds of target (wind: 36x the onsets; blowing dust: 6.6x) and two new station inputs. Every
+one lands on the same numbers: strict CSI about 0.50 / 0.39 / 0.21, strict onset 0.03-0.10 with FAR about 0.9,
+blowing-dust onset 0.12 with FAR about 0.8. More labels of related events did not move dust onset. Together with the
+perfect-wind test (a perfect wind forecast gives onset CSI 0.02-0.03) this says the limit is not how the sky branch
+is trained but what the inputs contain about WHERE a strong wind will lower visibility: surface state and the
+position of the dust wall between stations. Further gains need new observations (radar with verified timing,
+road-level visibility sensors, a larger domain), not further targets on the same inputs.
