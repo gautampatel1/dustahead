@@ -17,7 +17,7 @@ import pandas as pd
 import torch
 from torch.utils.data import Dataset
 
-from ..data.sampler import genesis_per_station, input_stack, load_sample, radar_drop_newest, radar_key, wants_forecast, wants_dust_now, wants_radar, wants_wind
+from ..data.sampler import genesis_per_station, input_stack, load_sample, radar_drop_newest, radar_key, wants_forecast, load_hotspot, wants_dust_now, wants_radar, wants_wind
 
 MAX_STATIONS = 256      # ASOS (~85) + extended Synoptic stations (road-weather, PM10, other visibility)
 
@@ -87,6 +87,7 @@ class DustDataset(Dataset):
         self.radar_key = radar_key(cfg or {})               # which stored radar block (xr or xr_lag5)
         self.with_wind = wants_wind(cfg or {})              # paint the station wind block (channels.wind)
         self.with_dust_now = wants_dust_now(cfg or {})      # paint the station blowing-dust state (channels.dust_now)
+        self.hotspot = load_hotspot(cfg or {})              # dust hotspot climatology (channels.hotspot), loaded once
         # wind target for the wind head: peak wind (max of sustained and gust) >= loss.wind_kt at t0 + lead
         self.wind_kt = float((cfg or {}).get("loss", {}).get("wind_kt", 30.0))
         # blowing-dust target: a dust weather code with visibility <= loss.tier_vis_mi (st_dvis from 22_add_dust_tiers.py)
@@ -116,7 +117,7 @@ class DustDataset(Dataset):
         st_now = s["st_now"].copy()
         if self.station_dropout > 0:
             st_now[self.rng.random(len(st_now)) < self.station_dropout] = -1       # -1 = no report
-        x = input_stack(s, st_now, self.with_forecast, self.with_radar, self.radar_drop, self.radar_key, self.with_wind, None, self.with_dust_now)   # x (62) + station channel (+ forecast, radar, wind)
+        x = input_stack(s, st_now, self.with_forecast, self.with_radar, self.radar_drop, self.radar_key, self.with_wind, None, self.with_dust_now, self.hotspot)   # x (62) + station channel (+ forecast, radar, wind)
         y = s["y"].astype(np.float32)
         w = s["w"].astype(np.float32)
         ij = s["st_ij"].astype(np.int64)

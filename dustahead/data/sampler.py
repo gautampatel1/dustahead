@@ -66,6 +66,9 @@ N_CH_IN_WIND = N_CH_IN_FULL + N_WIND
 N_DNOW = 2                          # station blowing-dust state at t0: severity level, has-report mask (key `st_dvis_now`)
 CH["dust_now"] = slice(N_CH_IN_WIND, N_CH_IN_WIND + N_DNOW)     # static slot after the wind block
 N_CH_IN_DNOW = N_CH_IN_WIND + N_DNOW
+N_HOT = 2                           # dust hotspot climatology: satellite dust frequency, warning-polygon frequency
+CH["hotspot"] = slice(N_CH_IN_DNOW, N_CH_IN_DNOW + N_HOT)       # static slot after the dust_now block
+N_CH_IN_HOT = N_CH_IN_DNOW + N_HOT
 
 
 def assemble_forecast(fc: dict[str, np.ndarray]) -> np.ndarray:
@@ -80,7 +83,8 @@ def assemble_radar(stack: np.ndarray) -> np.ndarray:
 
 def input_stack(sample: dict, st_now: np.ndarray | None = None, with_forecast: bool = False,
                 with_radar: bool = False, radar_drop_newest: int = 0, radar_key: str = "xr",
-                with_wind: bool = False, st_wnow: np.ndarray | None = None, with_dust_now: bool = False) -> np.ndarray:
+                with_wind: bool = False, st_wnow: np.ndarray | None = None, with_dust_now: bool = False,
+                hotspot: np.ndarray | None = None) -> np.ndarray:
     """The model input for one stored sample: x (62) + painted station channel (+ the forecast block `xf`
     + the radar block `xr`). Blocks sit at fixed channel slots (CH), so when the radar block is wanted the forecast
     slot is filled with zeros if the model does not use it. `st_now` overrides the stored reports (station dropout,
@@ -118,7 +122,24 @@ def input_stack(sample: dict, st_now: np.ndarray | None = None, with_forecast: b
             parts.append(np.zeros((N_DNOW,) + x.shape[1:], np.float32))
         else:
             parts.append(paint_station_dust_now(sample["st_ij"], sample["st_dvis_now"], x.shape[1:]))
-    return np.concatenate(parts, 0)
+    out = np.concatenate(parts, 0)
+    if hotspot is not None:                # fixed slot after every other block: unused slots before it are zeros
+        pad = N_CH_IN_DNOW - out.shape[0]
+        out = np.concatenate([out, np.zeros((pad,) + x.shape[1:], np.float32), hotspot.astype(np.float32)], 0)
+    return out
+
+
+def load_hotspot(cfg: dict) -> np.ndarray | None:
+    """channels.hotspot: the dust hotspot climatology (N_HOT, ny, nx) written by scripts/26_build_hotspot.py, or None.
+    Dust lifts again and again from the same sources (dry lake beds, fallow fields); the map tells the gate where
+    strong wind has produced dust before. Built from 2018-2024 only, so no validation or test event is in it."""
+    if not cfg.get("channels", {}).get("hotspot", 0):
+        return None
+    from pathlib import Path
+    f = Path(cfg["paths"]["static"]) / "hotspot_2018_2024.npy"
+    if not f.exists():
+        raise FileNotFoundError(f"{f} missing: run scripts/26_build_hotspot.py")
+    return np.load(f).astype(np.float32)
 
 
 def wants_dust_now(cfg: dict) -> bool:

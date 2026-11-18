@@ -184,3 +184,23 @@ def test_dust_now_block_slot_and_painting():
     s = dict(x=np.zeros((62, H, W), np.float16), st_ij=ij, st_now=np.zeros(4, np.int8), st_dvis_now=np.array([99.0, 3.0, np.nan, 0.0], np.float32))
     x = input_stack(s, None, True, False, 0, "xr", False, None, True)
     assert x.shape[0] == N_CH_IN_DNOW and x[CH["dust_now"]][0, 10, 10] == 0.5 and not x[CH["wind"]].any()
+
+
+def test_hotspot_block_goes_to_the_gate():
+    """channels.hotspot: two climatology channels at a fixed slot after every other block, seen by the gate only."""
+    import copy
+    import numpy as np
+    from dustahead import load_config
+    from dustahead.data.sampler import CH, N_CH_IN_HOT, input_stack
+    from dustahead.models.gated_unet import build_model
+    cfg = copy.deepcopy(load_config())
+    cfg["model"].update(base_channels=8, depth=2, gate_channels=["static", "physics"])
+    cfg["channels"].update(hrrr_fcst=6, hotspot=2)
+    m = build_model(cfg, "gated_unet")
+    hot = set(range(CH["hotspot"].start, CH["hotspot"].stop))
+    assert hot <= set(m.gnd_idx.tolist()) and not hot & set(m.dyn_idx.tolist())
+    H, W = 32, 48
+    s = dict(x=np.zeros((62, H, W), np.float16), st_ij=np.array([[5, 5]]), st_now=np.zeros(1, np.int8))
+    x = input_stack(s, None, True, hotspot=np.ones((2, H, W), np.float32))
+    assert x.shape[0] == N_CH_IN_HOT and x[CH["hotspot"]].min() == 1 and not x[CH["wind"]].any() and not x[CH["dust_now"]].any()
+    assert m(torch.from_numpy(x)[None]).shape == (1, 3, H, W)

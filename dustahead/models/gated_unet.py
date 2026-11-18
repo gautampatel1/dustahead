@@ -187,15 +187,16 @@ def build_model(cfg: dict, name: str | None = None) -> nn.Module:
     ch = cfg.get("channels", {})
     extra = (("hrrr_fcst",) if ch.get("hrrr_fcst", 0) else ()) + (("radar",) if ch.get("radar", 0) else ()) \
         + (("wind",) if ch.get("wind", 0) else ()) + (("dust_now",) if ch.get("dust_now", 0) else ())
+    hot = ("hotspot",) if ch.get("hotspot", 0) else ()      # climatology: a ground channel (gate) in the gated model
     wind = bool(cfg.get("loss", {}).get("w_wind", 0))      # wind head: strong wind at t0 + lead (multi-task)
     tier = bool(cfg.get("loss", {}).get("w_tier", 0))      # blowing-dust head: dust code with visibility <= tier_vis_mi
     aux = bool(cfg.get("loss", {}).get("w_aux", 0))        # second dense head: satellite dust mask (multi-task)
     if name == "gated_unet":
-        ground = tuple(m.get("gate_channels", GROUND))               # which channel groups the gate sees
+        ground = tuple(m.get("gate_channels", GROUND)) + hot         # which channel groups the gate sees
         dynamic = tuple(g for g in DYNAMIC + GROUND if g not in ground) + extra   # everything else goes to the U-Net
         return GatedUNet(n_leads, m["base_channels"], m["depth"], m["gate_bias_init"], dynamic=dynamic, ground=ground, aux=aux, wind=wind, tier=tier)
     if name == "unet_all":
-        return PlainUNet(n_leads, m["base_channels"], m["depth"], groups=DYNAMIC + GROUND + extra, aux=aux, wind=wind, tier=tier)
+        return PlainUNet(n_leads, m["base_channels"], m["depth"], groups=DYNAMIC + GROUND + extra + hot, aux=aux, wind=wind, tier=tier)
     if name == "unet_dust_only":
         return PlainUNet(n_leads, m["base_channels"], m["depth"], groups=("satellite",))
     if name == "convlstm":

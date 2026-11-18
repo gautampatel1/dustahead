@@ -1,0 +1,11 @@
+# Experiment config (v17, seed 11): the v11f recipe plus the dust HOTSPOT climatology (2018-2024 satellite dust
+# frequency and Dust Storm Warning frequency, scripts/26_build_hotspot.py) as two extra ground channels for the gate.
+# Theory: the false alarms come from not knowing WHERE strong wind lifts dust; sources are persistent places.
+# Judged over three seeds against three seeds of the same recipe without it (scripts/27_seed_table.py).
+channels:
+  hrrr_fcst: 6
+  hotspot: 2
+model:
+  gate_channels: [static, physics]
+train:
+  seed: 11
