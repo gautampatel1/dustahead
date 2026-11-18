@@ -1,0 +1,16 @@
+{
+ "schema": 1,
+ "title": "Illustration: outflow dust moving up I-10 from Tucson",
+ "source": "fixture",
+ "frames": [
+  "runs/202608252310/bundle.json",
+  "runs/202608252320/bundle.json",
+  "runs/202608252330/bundle.json",
+  "runs/202608252340/bundle.json",
+  "runs/202608252350/bundle.json",
+  "runs/202608260000/bundle.json",
+  "runs/202608260010/bundle.json",
+  "runs/202608260020/bundle.json",
+  "runs/202608260030/bundle.json"
+ ]
+}

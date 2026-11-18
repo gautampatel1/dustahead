@@ -31,16 +31,30 @@ from ..events.stations import fetch_asos, fetch_station_table, has_code
 from ..grid import Grid
 from ..train.train import load_checkpoint
 
-# Interstate 10 waypoints (lon, lat) across the domain, west -> east; refined from OSM in Phase 2
-I10 = [(-114.72, 33.61), (-113.90, 33.63), (-113.20, 33.55), (-112.70, 33.43), (-112.07, 33.46), (-111.95, 33.38),
-       (-111.75, 33.10), (-111.55, 32.90), (-111.30, 32.70), (-111.05, 32.42), (-110.96, 32.20), (-110.75, 32.00),
-       (-110.40, 32.07), (-110.08, 32.17), (-109.78, 32.26), (-109.45, 32.25), (-109.04, 32.27), (-108.70, 32.33),
-       (-108.20, 32.28), (-107.75, 32.26), (-107.30, 32.26), (-106.90, 32.30), (-106.65, 32.20), (-106.45, 31.95),
-       (-106.38, 31.81)]
-# nearest town or landmark to each waypoint, west -> east, for human-readable segment names
-I10_NAMES = ["Ehrenberg (CA line)", "Quartzsite", "Tonopah", "Buckeye", "Phoenix", "Tempe", "Chandler", "Casa Grande",
-             "Eloy", "Picacho Peak", "Marana", "Tucson", "Vail", "Benson", "Dragoon", "Willcox", "Bowie", "San Simon",
-             "Lordsburg", "Deming", "Akela", "Las Cruces West", "Las Cruces", "Anthony", "El Paso"]
+# Interstate 10 waypoints, west -> east: (name, state, exit number, lon, lat). Each waypoint IS the I-10 exit for that
+# place (OpenStreetMap highway=motorway_junction nodes, (c) OpenStreetMap contributors, ODbL; Overpass extract of
+# 2026-07-24), so the name, the position and the milepost (exit numbers are mileposts in AZ, NM and TX) cannot drift
+# apart. Until 2026-11 the coordinates and names were kept as two separate lists and the names sat about one waypoint
+# east of their positions from Chandler on (e.g. "Eloy -> Picacho Peak" covered Picacho Peak -> north Tucson).
+# Straight lines between these exits stay within ~3 km of the road (~5 km between Anthony and El Paso), under one
+# 4-km grid cell; OSM road geometry replaces the straight lines in Phase 2.
+I10_EXITS = [
+    ("Ehrenberg (CA line)", "AZ", 1, -114.519, 33.603), ("Quartzsite", "AZ", 17, -114.240, 33.660),
+    ("Tonopah", "AZ", 94, -112.937, 33.497), ("Buckeye", "AZ", 114, -112.591, 33.434),
+    ("Phoenix", "AZ", 145, -112.070, 33.462), ("Tempe", "AZ", 153, -111.984, 33.411),
+    ("Chandler", "AZ", 160, -111.972, 33.303), ("Casa Grande", "AZ", 194, -111.687, 32.884),
+    ("Eloy", "AZ", 208, -111.555, 32.737), ("Picacho Peak", "AZ", 219, -111.399, 32.651),
+    ("Marana", "AZ", 236, -111.222, 32.466), ("Tucson", "AZ", 258, -110.982, 32.228),
+    ("Vail", "AZ", 279, -110.724, 32.029), ("Benson", "AZ", 304, -110.312, 31.978),
+    ("Dragoon", "AZ", 318, -110.097, 32.040), ("Willcox", "AZ", 340, -109.847, 32.262),
+    ("Bowie", "AZ", 362, -109.519, 32.332), ("San Simon", "AZ", 378, -109.256, 32.275),
+    ("Lordsburg", "NM", 22, -108.717, 32.344), ("Deming", "NM", 82, -107.762, 32.270),
+    ("Akela", "NM", 102, -107.423, 32.239), ("Las Cruces West", "NM", 135, -106.890, 32.280),
+    ("Las Cruces", "NM", 142, -106.769, 32.281), ("Anthony", "NM", 162, -106.590, 32.028),
+    ("El Paso", "TX", 19, -106.496, 31.760),
+]
+I10 = [(lon, lat) for _, _, _, lon, lat in I10_EXITS]
+I10_NAMES = [name for name, *_ in I10_EXITS]
 
 
 class DustAhead:
@@ -59,6 +73,17 @@ class DustAhead:
         self.last_station = None        # (st_ij, st_now) of the last live station fetch
         self.needs_forecast = any(wants_forecast(ck["cfg"]) for _, ck in self.members)   # HRRR forecast block wanted
         self.last_xf = None             # forecast block of the last build_live_input
+
+    @classmethod
+    def policy_only(cls, cfg: dict | None = None) -> "DustAhead":
+        """An engine without models: road segments and the alert policy only. Used by the bundle tests and the
+        web fixture so they apply exactly the thresholds, genesis rule and hysteresis the product uses."""
+        self = cls.__new__(cls)
+        self.cfg = cfg or load_config()
+        self.grid = Grid.from_config(self.cfg)
+        self.leads = self.cfg["time"]["leads_min"]
+        self.members, self.member_names, self.stations, self.last_station = [], [], None, None
+        return self
 
     # ---- inputs ----
     def build_live_input(self, t0: dt.datetime) -> np.ndarray:

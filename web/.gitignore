@@ -1,0 +1,9 @@
+node_modules/
+.next/
+out/
+next-env.d.ts
+*.tsbuildinfo
+# local copies of live/replay publishes (scripts/30_publish.py --out web/public/data); demo/ is committed
+public/data/
+public/replay/
+public/maplibre/

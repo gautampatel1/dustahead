@@ -100,6 +100,10 @@ product:                 # alert policy for the prototype (validated on the 2025
   release_threshold: 0.50                 # an active alert is released only when P falls below this ...
   min_hold_steps: 3                       # ... and never before 3 forecasts (30 min) have passed
 
+publish:                 # scripts/30_publish.py -> web + phone apps (dustahead/app/bundle.py). Secrets: environment only
+  out_dir: runs/publish                   # local publish root; mirrors what is uploaded to R2
+  stale_after_min: 25                     # the apps show "No forecast" (never "clear") once t0 is this old
+
 paths:
   data_root: data
   raw: data/raw          # only Storm Events gz files land here; GOES/GLM/HRRR are read remotely

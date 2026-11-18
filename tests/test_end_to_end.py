@@ -46,6 +46,21 @@ def test_end_to_end(tmp_path):
     assert np.allclose(out2["probs"], out["probs"]) and len(out2["members"]) == 1 and out2["genesis"].shape == (64, 80)
     assert all({"segment", "lead_min", "p_max", "genesis", "level"} <= set(a) for a in out2["alerts"])
 
+    # publish (scripts/30_publish.py --replay): one event through the model + AlertTracker into app bundles
+    import importlib.util
+    import json
+    import types
+    spec = importlib.util.spec_from_file_location("publish", Path(__file__).resolve().parents[1] / "scripts" / "30_publish.py")
+    pub = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(pub)
+    test_dir = tmp_path / "samples" / "test"
+    ev = sorted(test_dir.glob("*.npz"))[0].stem.rsplit("_", 1)[0]
+    pub.publish_replay(types.SimpleNamespace(replay=str(test_dir), event=ev, ckpt=[str(run_dir / "best.pt")]), cfg, tmp_path / "pub")
+    idx = json.loads((tmp_path / "pub" / "replay.json").read_text())
+    b = json.loads((tmp_path / "pub" / idx["frames"][0]).read_text())
+    assert idx["source"] == b["source"] == "replay" and b["nws"] is None and len(b["segments"]) == 24
+    assert all((tmp_path / "pub" / v).exists() for v in b["layers"].values()) and set(b["layers"]) == {"15", "30", "60"}
+
 
 def test_finetune_ema_fold_and_policy(tmp_path):
     """v9-style fine-tune (init_from + EMA) on the swapped 2025 fold, the station-persistence policy in eval and
