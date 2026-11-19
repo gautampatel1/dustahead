@@ -935,3 +935,26 @@ Same picture at +15 and +30, for the v11f recipe, and for the three-seed ensembl
 - In training these stations carry the label "no dust" at those times, a small amount of wrong supervision, but only
   about 90 such reports fall in 2018-2024. Relabelling them is cheap and right, and unlikely to move much.
 - Dust on days outside the warning-based event list is being counted separately (`scripts/32_scan_all_days_dust.py`).
+
+## 19 Nov — seed ensemble (mean of three runs of the v11f recipe): a small, consistent gain, not a breakthrough
+
+`scripts/31_seed_ensemble.py`. Probabilities of three seeds (42, 7, 11) averaged per fold; ASOS; all of 2025 pooled.
+
+| | +15 | +30 | +60 |
+|---|---|---|---|
+| onset CSI, best threshold: ensemble / average member, pooled | 0.069 / 0.057 | 0.083 / 0.074 | 0.113 / 0.095 |
+| the same on fold 0 (46 / 83 / 130 onsets) | 0.098 / 0.075 | 0.114 / 0.098 | 0.167 / 0.128 |
+| the same on fold 1 (158 / 250 / 337 onsets) | 0.063 / 0.055 | 0.082 / 0.076 | 0.104 / 0.086 |
+| onset CSI at 0.5: ensemble / average member, pooled | 0.039 / 0.040 | 0.071 / 0.067 | 0.103 / 0.090 |
+| gain at 0.5, pooled [95 % interval], p | −0.001 [−0.02, +0.01], 0.52 | +0.005 [−0.02, +0.03], 0.34 | +0.013 [−0.02, +0.04], 0.19 |
+| all cases, best threshold: ensemble / member / persistence, pooled | 0.467 / 0.459 / 0.498 | 0.377 / 0.369 / 0.429 | 0.293 / 0.285 / 0.323 |
+
+- Fold 0 alone had suggested +0.03 to +0.045 at 0.5 (p 0.04 and 0.01). **The larger fold does not confirm that
+  size**: at the fixed 0.5 cut-off the pooled gain is not significant, and on fold 1 it is slightly negative because
+  averaging lowers the probabilities and fewer cross 0.5.
+- With the threshold chosen per model the ensemble is ahead of its average member on both folds and at every lead,
+  by 10-20 % relative (pooled +60: 0.113 against 0.095). No significance test was run for that comparison.
+- All cases improve by about 0.008 and stay below station persistence over the whole year.
+- Verdict: worth having (it costs only training time and removes run-to-run luck from the product), but it is an
+  increment. The fold-0 result was reported as promising on the morning of 19 Nov with the caveat that fold 1 was the
+  test; fold 1 has now scaled it down.
