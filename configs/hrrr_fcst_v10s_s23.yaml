@@ -1,0 +1,7 @@
+# v11f recipe on fold 0, seed 23: fourth and fifth members of the seed ensemble (does it keep improving past three?).
+channels:
+  hrrr_fcst: 6
+model:
+  gate_channels: [static, physics]
+train:
+  seed: 23
