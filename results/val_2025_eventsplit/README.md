@@ -873,3 +873,41 @@ alert = P >= threshold at any lead; a hit = strict dust at the station at any le
 - Measured for v8 alone. The policy is in the config but switched off (`product.tiers.enabled: false`) until the
   product model is v8: the three-member max ensemble has higher probabilities and these thresholds were not
   measured for it. Decision pending.
+
+## 19 Nov — literature leads checked: raw radar moments at stations, NOAA dust forecasts
+
+**Raw Level II radar (velocity, correlation coefficient, differential reflectivity).** NWS forecasters use radar
+velocity and "non-uniform" correlation coefficient for dust (NOAA Technical Memorandum NWS-WR 290). The mosaic used
+in v14 holds reflectivity only. Five 2025 storms, 77 volumes (`scripts/29_fetch_level2.py`), lowest tilt sampled
+within 4 km of each ASOS station 8-120 km from the radar and matched to the station report within 8 min
+(`scripts/30_level2_station_check.py`, `results/level2_check/`). Medians per class; AUC = how well the quantity
+ranks dust above no dust (0.5 = no better than chance).
+
+| KIWA, three monsoon storms (17 stations) | n | reflectivity max (dBZ) | correlation coeff. | ZDR (dB) | velocity p90 (m/s) |
+|---|---|---|---|---|---|
+| strict dust | 21 | 28.0 | 0.98 | 1.84 | 10.0 |
+| weaker dust (dust code, 1-6 mi) | 59 | 14.5 | 0.95 | 1.14 | 8.7 |
+| windy (>= 25 kt), no dust | 59 | 34.5 | 0.99 | 0.66 | 11.0 |
+| calm, no dust | 448 | 18.5 | 0.93 | 1.28 | 7.5 |
+
+| KEPZ, two spring wind storms (4 stations) | n | reflectivity max | correlation coeff. | ZDR | velocity p90 |
+|---|---|---|---|---|---|
+| strict dust | 32 | 2.5 | 0.62 | 0.94 | 13.6 |
+| weaker dust | 48 | 3.0 | 0.72 | 0.53 | 13.1 |
+| windy, no dust | 19 | 8.0 | 0.55 | 0.75 | 22.4 |
+
+AUC, strict dust against windy-no-dust: KIWA reflectivity 0.48, correlation coefficient 0.37, ZDR 0.76, velocity 0.49
+(21 dust rows); KEPZ 0.28 / 0.62 / 0.53 / 0.20 (32 dust rows).
+
+- **At a station, none of the radar quantities separates dust from windy weather without dust.** In the monsoon
+  storms dust and rain share the beam (reflectivity near 30 dBZ, correlation coefficient 0.98 in both classes); in
+  the spring storms the air is nearly echo-free and the low correlation coefficient is the same with and without dust.
+  Differential reflectivity is the only quantity with a hint (0.76) and that rests on 21 rows from three storms.
+- This does not test what forecasters actually look at, the SHAPE of the echo (a thin line ahead of the storm), which
+  needs the fields as image inputs: Level II for 27,000 samples from eight radars is hundreds of gigabytes and
+  weeks of work. Not a quick win; kept as a possible direction after 9 Dec, with low expectations given this check.
+
+**NOAA dust forecasts.** The National Air Quality Forecast Capability is on AWS (`noaa-nws-naqfc-pds`): a dust
+forecast for the contiguous US at about 5 km, twice a day (06 and 12 UTC), out to 48 hours; the archive description
+starts in 2020. Two runs a day cannot carry a thunderstorm outflow that forms in the afternoon, so it could help
+only the spring wind events, and 2018-2019 would be missing. Low priority.
