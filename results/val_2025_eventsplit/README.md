@@ -789,3 +789,34 @@ Reading:
   between recipes reported here. Only two onset results do not depend on it: every run scores above persistence's
   zero, and no run has reached 0.15.
 - From here on a recipe is compared with at least three seeds per arm, on the mean and the spread.
+
+## 18 Nov — v17: dust hotspot climatology in the gate, three seeds per arm: rejected
+
+`scripts/26_build_hotspot.py`: two maps from 2018-2024 only (satellite dust frequency from 5,965 training samples;
+Dust Storm Warning frequency from 403 polygons), given to the gate as extra ground channels (`channels.hotspot`).
+Mean value at the ASOS stations 0.02 / 0.16. Three seeds (42, 7, 11) with the map against three seeds of the same
+recipe (v11f) without it; fold 0, ASOS; `scripts/27_seed_table.py`, mean [min, max] over seeds.
+
+| | hotspot (v17) | baseline (v11f recipe) | Welch t |
+|---|---|---|---|
+| all cases, CSI best, +15 | 0.490 [0.477, 0.513] | 0.486 [0.483, 0.490] | 0.3 |
+| all cases, CSI best, +30 | 0.375 [0.370, 0.382] | 0.360 [0.339, 0.382] | 1.1 |
+| all cases, CSI best, +60 | 0.223 [0.217, 0.233] | 0.228 [0.214, 0.255] | −0.4 |
+| onset CSI at 0.5, +15 | 0.038 [0.011, 0.053] | **0.071 [0.060, 0.079]** | −2.2 |
+| onset CSI at 0.5, +30 | 0.075 [0.071, 0.077] | **0.088 [0.076, 0.099]** | −1.9 |
+| onset CSI at 0.5, +60 | 0.094 [0.088, 0.097] | **0.122 [0.104, 0.143]** | −2.4 |
+| onset FAR at 0.5, +60 | 0.889 [0.885, 0.896] | 0.854 [0.834, 0.867] | 3.3 |
+
+- **The hotspot map lowers the onset score at every lead** and raises the onset false alarm ratio; all cases are
+  level. Where dust was seen before is not where the next onset is missed. Closed.
+- **Reference from here on: the three-seed baseline**, onset 0.071 / 0.088 / 0.122 at 0.5 (POD 0.23 / 0.38 / 0.43,
+  FAR 0.90 / 0.90 / 0.85), all cases 0.486 / 0.360 / 0.228.
+- Against that reference the four radar seeds of 17 Nov (onset mean 0.056 / 0.077 / 0.109) are slightly below, not
+  above: radar is not a gain either.
+
+### Where the search stands (15–18 Nov)
+
+Tried against the v11f recipe: wind targets and inputs (v15a-c), a blowing-dust target (v16, v16b, v16c), current
+dust reports as inputs, radar with verified timing (four seeds), area-level scoring, a hotspot climatology (three
+seeds). None raises the onset score beyond seed spread; two lower it. The onset score of this architecture on these
+inputs sits at about 0.07 / 0.09 / 0.12 with a false alarm ratio near 0.9, and has done so through every variation.
