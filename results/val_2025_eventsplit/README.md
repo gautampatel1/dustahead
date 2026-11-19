@@ -850,3 +850,26 @@ an onset at a station is detectable about 40 % of the time an hour ahead at the 
 and nothing derived from those same sources moves that. What could move it is observation the project does not have:
 road-level visibility sensors (ADOT request sent 16 Nov), more stations, or a larger domain. Work from here goes to
 the product (two alert tiers with stated hit rates, shown beside the official warning) and the report.
+
+## 19 Nov — two alert tiers, with measured hit rates (`product.tiers`, `app/predict.road_alerts`)
+
+All 2025 validation events out of sample (v8, two folds), ASOS station-times with labels at all three leads. An
+alert = P >= threshold at any lead; a hit = strict dust at the station at any lead (within 60 min).
+
+| situation at forecast time | threshold | alerts | followed by dust | dust cases covered |
+|---|---|---|---|---|
+| dust reported within 50 km (995 station-times, 602 with dust) | 0.50 | 668 | **78 %** | **87 %** |
+| | 0.80 (old product threshold) | 396 | 80 % | 53 % |
+| no dust within 50 km (265,934 station-times, 508 with dust) | 0.30 | 880 | **14 %** | **25 %** |
+| | 0.50 | 309 | 18 % | 11 % |
+| | 0.80 (old product threshold) | 24 | 17 % | 1 % |
+
+- The tier is set by an observation (is a station within 50 km reporting dust?), not by the probability. The two
+  situations differ five-fold in reliability, and no threshold makes a new-storm alert reliable.
+- **Tier 1, "Dust nearby"**, P >= 0.5: about four alerts in five verify. The old threshold of 0.8 bought no extra
+  reliability and dropped a third of the dust cases.
+- **Tier 2, "Dust possible"**, P >= 0.3: about one alert in seven verifies; it reaches a quarter of new storms. The
+  driver view says so in words and points to the official warning.
+- Measured for v8 alone. The policy is in the config but switched off (`product.tiers.enabled: false`) until the
+  product model is v8: the three-member max ensemble has higher probabilities and these thresholds were not
+  measured for it. Decision pending.

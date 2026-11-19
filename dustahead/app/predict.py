@@ -206,6 +206,14 @@ class DustAhead:
         thr = [threshold] * len(self.leads) if threshold else P.get("thresholds", [self.cfg["eval"]["threshold"]] * len(self.leads))
         thr_g = [threshold] * len(self.leads) if threshold else P.get("genesis_thresholds", thr)
         severe = P.get("severe_margin", 0.1)
+        # two tiers (product.tiers): "nearby" = a station within 50 km reports dust now, "new_storm" = none does.
+        # Each has its own thresholds and its own measured hit rate; a slider threshold overrides the thresholds.
+        T = P.get("tiers") or {}
+        tiers = bool(T.get("enabled")) and genesis_map is not None
+        if tiers and not threshold:
+            thr, thr_g = T["nearby"]["thresholds"], T["new_storm"]["thresholds"]
+        ck = self.cfg.get("product", {}).get("checkpoints", [])
+        rated = tiers and [str(c).replace("\\", "/") for c in ck] == [str(c) for c in T.get("validated_for", [])]
         alerts = []
         for name, i, j in self.road_cells():
             gen = bool(genesis_map[i, j].all()) if genesis_map is not None else False
@@ -213,8 +221,12 @@ class DustAhead:
                 t = thr_g[l] if gen else thr[l]
                 pm = float(probs[l][i, j].max())
                 if pm >= t:
-                    alerts.append(dict(segment=name, lead_min=lead, p_max=pm, genesis=gen,
-                                       level="severe" if pm >= t + severe else "watch"))
+                    a = dict(segment=name, lead_min=lead, p_max=pm, genesis=gen,
+                             level="severe" if pm >= t + severe else "watch")
+                    if tiers:
+                        a["tier"] = "new_storm" if gen else "nearby"
+                        a["hit_rate"] = float(T[a["tier"]]["hit_rate"]) if rated else None
+                    alerts.append(a)
                     break   # report the earliest lead that triggers
         return alerts
 

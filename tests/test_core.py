@@ -274,3 +274,30 @@ def test_dust_tiers_from_event_file(tmp_path):
     z = np.load(f)
     assert z["st_dvis_now"][0] == 99 and z["st_dvis"][0, 0] == 0.5 and z["st_dvis"][0, 1] == 99 and np.isnan(z["st_dvis"][0, 2])
     assert np.isnan(z["st_dvis"][1]).all() and np.isnan(z["st_dvis_now"][1])
+
+
+def test_two_tier_road_alerts():
+    """product.tiers: the tier comes from the observation (dust within 50 km or not), each tier has its own
+    threshold, and the measured hit rate is attached only for the model it was measured on."""
+    import copy
+    import numpy as np
+    from dustahead import load_config
+    from dustahead.app.predict import DustAhead
+    cfg = copy.deepcopy(load_config())
+    E = DustAhead.__new__(DustAhead)
+    E.cfg, E.leads = cfg, cfg["time"]["leads_min"]
+    cfg["product"]["tiers"]["enabled"] = True
+    cells = [("A", np.array([5]), np.array([5])), ("B", np.array([20]), np.array([20])), ("C", np.array([30]), np.array([30]))]
+    E.road_cells = lambda n_per_segment=12: cells
+    probs = np.zeros((3, 40, 40), np.float32)
+    probs[1, 5, 5] = 0.55        # A: dust nearby, 0.55 >= 0.50 -> alert
+    probs[2, 20, 20] = 0.35      # B: new storm, 0.35 >= 0.30 -> alert
+    probs[0, 30, 30] = 0.40      # C: dust nearby, 0.40 < 0.50 -> none
+    gen = np.ones((40, 40), bool); gen[5, 5] = gen[30, 30] = False
+    al = {a["segment"]: a for a in E.road_alerts(probs, genesis_map=gen)}
+    assert set(al) == {"A", "B"} and al["A"]["tier"] == "nearby" and al["B"]["tier"] == "new_storm" and al["B"]["lead_min"] == 60
+    assert al["A"]["hit_rate"] is None                      # default product is the 3-member ensemble: rates not shown
+    cfg["product"]["checkpoints"] = ["runs/gated_unet_v8/best.pt"]
+    al = {a["segment"]: a for a in E.road_alerts(probs, genesis_map=gen)}
+    assert al["A"]["hit_rate"] == 0.78 and al["B"]["hit_rate"] == 0.14
+    assert E.road_alerts(probs, 0.9, genesis_map=gen) == []  # an explicit threshold still overrides the tier policy
