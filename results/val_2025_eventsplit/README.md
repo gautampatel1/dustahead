@@ -911,3 +911,27 @@ AUC, strict dust against windy-no-dust: KIWA reflectivity 0.48, correlation coef
 forecast for the contiguous US at about 5 km, twice a day (06 and 12 UTC), out to 48 hours; the archive description
 starts in 2020. Two runs a day cannot carry a thunderstorm outflow that forms in the afternoon, so it could help
 only the spring wind events, and 2018-2019 would be missing. Low priority.
+
+## 19 Nov — are we missing labels? Station-confirmed dust without a warning, re-scored
+
+Inside the event days, 1,657 reports have a dust code and visibility <= 1 mi but no strict label: 1,390 are haze
+only (rightly excluded) and **267 carry a real dust code** (BLDU 176, DS 62 ...; median peak wind 35 kt; 4 % with
+rain) and are excluded only because no warning or Storm Events entry is near. 53 onsets on 39 days; 164 of the 267
+at El Paso; by year 2018: 10, 2022: 26, 2023: 13, 2024: 44, 2025: 131, 2026: 42.
+
+Stored validation predictions re-scored with those reports counted as dust ("station-confirmed"), all of 2025:
+
+| v8, both folds | positives (+60) | onset positives (+60) | all cases: model / persistence | onset at 0.5: CSI / POD / FAR |
+|---|---|---|---|---|
+| strict label | 1,018 | 467 | 0.296 / 0.323 | 0.068 / 0.13 / 0.88 |
+| station-confirmed | 1,160 | 571 | 0.288 / 0.322 | 0.062 / 0.11 / 0.87 |
+
+Same picture at +15 and +30, for the v11f recipe, and for the three-seed ensemble on fold 0 (onset +60: 0.167 strict,
+0.165 station-confirmed).
+
+- The extra reports are real dust the benchmark does not count: 22 % more onset positives at +60 in 2025.
+- **They do not explain the false alarms.** The false alarm ratio hardly moves (0.88 -> 0.87): the model's alerts are
+  not landing on this unwarned dust; mostly it misses it, so scores stay level or dip.
+- In training these stations carry the label "no dust" at those times, a small amount of wrong supervision, but only
+  about 90 such reports fall in 2018-2024. Relabelling them is cheap and right, and unlikely to move much.
+- Dust on days outside the warning-based event list is being counted separately (`scripts/32_scan_all_days_dust.py`).
