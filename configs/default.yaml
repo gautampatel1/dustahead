@@ -100,7 +100,8 @@ eval:
   fss_windows: [3, 5, 9]
 
 product:                 # alert policy for the prototype (validated on the 2025 event split, see results/)
-  checkpoints: [runs/unet_all_v4/best.pt, runs/gated_unet_v4/best.pt, runs/gated_unet_v8/best.pt]   # element-wise max; v8 adds monsoon coverage
+  checkpoints: [runs/gated_unet_v8/best.pt]   # 19 Nov: v8 alone (was max of unet_all_v4, gated_unet_v4, v8). The ensemble added
+                                              # nothing on 2026, gated_unet_v4 collapsed there, and the tier hit rates are measured for v8
   thresholds: [0.80, 0.80, 0.80]          # per lead (+15, +30, +60): best-CSI thresholds of the max ensemble
   genesis_thresholds: [0.80, 0.80, 0.80]  # road cells with no dust-reporting station within 50 km (same for now)
   severe_margin: 0.10                     # "severe" when P exceeds the threshold by this much
@@ -114,8 +115,7 @@ product:                 # alert policy for the prototype (validated on the 2025
   #   new_storm  no dust within 50 km: alerts at P >= 0.3 verified 14 % of the time and covered 25 % of new storms
   # The hit rates are shown to the user only when the product model is the one they were measured for.
   tiers:
-    enabled: false       # off until the product model is the validated one (decision pending): thresholds above were
-                         # measured for v8 alone, not for the 3-member max ensemble, whose probabilities run higher
+    enabled: true
     validated_for: [runs/gated_unet_v8/best.pt]
     nearby:    {thresholds: [0.50, 0.50, 0.50], hit_rate: 0.78, coverage: 0.87}
     new_storm: {thresholds: [0.30, 0.30, 0.30], hit_rate: 0.14, coverage: 0.25}

@@ -286,7 +286,6 @@ def test_two_tier_road_alerts():
     cfg = copy.deepcopy(load_config())
     E = DustAhead.__new__(DustAhead)
     E.cfg, E.leads = cfg, cfg["time"]["leads_min"]
-    cfg["product"]["tiers"]["enabled"] = True
     cells = [("A", np.array([5]), np.array([5])), ("B", np.array([20]), np.array([20])), ("C", np.array([30]), np.array([30]))]
     E.road_cells = lambda n_per_segment=12: cells
     probs = np.zeros((3, 40, 40), np.float32)
@@ -296,7 +295,8 @@ def test_two_tier_road_alerts():
     gen = np.ones((40, 40), bool); gen[5, 5] = gen[30, 30] = False
     al = {a["segment"]: a for a in E.road_alerts(probs, genesis_map=gen)}
     assert set(al) == {"A", "B"} and al["A"]["tier"] == "nearby" and al["B"]["tier"] == "new_storm" and al["B"]["lead_min"] == 60
-    assert al["A"]["hit_rate"] is None                      # default product is the 3-member ensemble: rates not shown
+    cfg["product"]["checkpoints"] = ["runs/other/best.pt"]
+    assert E.road_alerts(probs, genesis_map=gen)[0]["hit_rate"] is None      # another model: the measured rates are not shown
     cfg["product"]["checkpoints"] = ["runs/gated_unet_v8/best.pt"]
     al = {a["segment"]: a for a in E.road_alerts(probs, genesis_map=gen)}
     assert al["A"]["hit_rate"] == 0.78 and al["B"]["hit_rate"] == 0.14
