@@ -820,3 +820,33 @@ Tried against the v11f recipe: wind targets and inputs (v15a-c), a blowing-dust 
 dust reports as inputs, radar with verified timing (four seeds), area-level scoring, a hotspot climatology (three
 seeds). None raises the onset score beyond seed spread; two lower it. The onset score of this architecture on these
 inputs sits at about 0.07 / 0.09 / 0.12 with a false alarm ratio near 0.9, and has done so through every variation.
+
+## 19 Nov — theory "onsets are an existing storm arriving from upstream": rejected (`scripts/28_upstream_precursors.py`)
+
+All 544 event days, ASOS reports in 10-minute bins. Onset = strict dust at a station around t0 + lead with no strict
+dust within 50 km at t0. Precursor = another station within R reporting it in the 20 min up to t0. 1,357 onset
+station-times at +60 (1,024 at +30); `results/precursors/upstream_precursors.json`.
+
+| precursor at t0, within 150 km | onsets that had it (+60) | present without an onset | onsets per alert (precision) |
+|---|---|---|---|
+| strict dust (50-150 km away) | 24 % | 0.3 % | 4.1 % |
+| any dust weather code | 59 % | 5.7 % | 0.56 % |
+| peak wind >= 30 kt | 75 % | 11.8 % | 0.35 % |
+
+Within 100 km: 13 % / 48 % / 66 % of onsets, precision 4.8 % / 0.8 % / 0.5 %. The +30 numbers are the same picture.
+
+- **Three in four onsets have no severe dust at any station within 150 km beforehand.** They are not an observed
+  dust wall arriving; a tracker of strict dust could catch a quarter of them at most, with 96 % false alarms.
+- Weaker precursors are present before most onsets but are 10-20 times too common to alert on (precision under 1 %).
+- The model already does far better than any of these rules: about 40 % of onsets caught at 85-90 % false alarms
+  is a precision of 10-15 %, twenty to forty times that of "strong wind upstream". The station information a
+  tracker would use is already in the inputs (station channel; wind and dust-report inputs of v15 / v16c added nothing).
+
+### End of the model search (15–19 Nov)
+
+Three theories measured without training (area scoring, upstream arrival, perfect wind) and four tested with training
+(wind, blowing dust, radar, hotspot). All point the same way: with satellite, model weather and 85 airport stations,
+an onset at a station is detectable about 40 % of the time an hour ahead at the cost of nine false alarms in ten,
+and nothing derived from those same sources moves that. What could move it is observation the project does not have:
+road-level visibility sensors (ADOT request sent 16 Nov), more stations, or a larger domain. Work from here goes to
+the product (two alert tiers with stated hit rates, shown beside the official warning) and the report.
