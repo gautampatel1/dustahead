@@ -981,3 +981,21 @@ A count only: nothing was added to the labels.
   That is a labelling decision and has not been taken.
 - Not a hidden mass of severe storms. Adding the pre-2026 days would add roughly 30 severe onsets (about a fifth more
   by this script's count); whether that moves onset skill is untested.
+
+## 20 Nov — station-confirmed label version (v18): data built, training started
+
+Approved by Gautam on 20 Nov as a parallel experiment; the strict rule stays the main label version.
+`scripts/33_station_events.py`, `34_add_confirmed_labels.py`, `label.variant: station_confirmed`, configs `confirmed_v18_*`.
+
+- 110 severe reports without a warning in 2018-2024 group into 23 station-only event days (`events_station.csv`).
+  Job 114 built 1,091 samples for them (10-min plus 5-min onset steps). 372 sample times failed on file errors on the
+  PC (path length, cache files in use); they were not rebuilt, so that all six runs train on the same data.
+- Confirmed labels against strict, train + validation (25,343 samples): +15 min 1,974 -> +196 (+10 %),
+  +30 min 2,283 -> +215 (+9 %), +60 min 2,383 -> +221 (+9 %). 606 samples gain a positive, 246 of them on the
+  station-only days. 202 current-report rows change to dust (the station input channel and the onset definition).
+- Design: v11f recipe, seeds 42 / 7 / 11 on both folds (jobs 115, 116). Every model is scored on the strict labels
+  (`eval_val.json`, comparable with the v11f seeds) and on the confirmed labels (`eval_val_confirmed.json`, the v11f
+  seeds too). Validation storms are unchanged; 2026 is not used.
+- Baseline seed 5 (v11f recipe, fold 0): onset CSI at 0.5 0.083 / 0.089 / 0.138, all cases 0.479 / 0.369 / 0.246.
+  Seed 23 crashed at epoch 12 when code was synced during its training; its evaluation and the five-seed file from
+  job 113 are invalid and it is retrained in job 117.
