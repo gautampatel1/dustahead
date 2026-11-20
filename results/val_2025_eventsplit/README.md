@@ -958,3 +958,26 @@ Same picture at +15 and +30, for the v11f recipe, and for the three-seed ensembl
 - Verdict: worth having (it costs only training time and removes run-to-run luck from the product), but it is an
   increment. The fold-0 result was reported as promising on the morning of 19 Nov with the caveat that fold 1 was the
   test; fold 1 has now scaled it down.
+
+## 20 Nov — dust outside the warning-based event list (all days, 2018 to Oct 2026): about a tenth of severe dust is missed
+
+`scripts/32_scan_all_days_dust.py` (job 112). Every ASOS (Automated Surface Observing System) report at the 85 stations
+with a real dust code (haze excluded) and visibility <= 6 mi; "inside" = within 6 h of an event window in `events.csv`.
+A count only: nothing was added to the labels.
+
+| dust-coded reports | inside: reports / onsets / station-days | outside: reports / onsets / station-days / days |
+|---|---|---|
+| visibility <= 1 mi (severe) | 1179 / 166 / 165 | 133 / 38 / 34 / 28 |
+| visibility <= 3 mi | 3935 / 410 / 406 | 1258 / 180 / 181 / 132 |
+| visibility <= 6 mi | 6772 / 621 / 615 | 3759 / 445 / 435 / 301 |
+
+- Severe dust outside the list, by year: 2018 6, 2019 11, 2020 5, 2021 46, 2022 4, 2023 17, 2024 21, 2025 1, 2026 22.
+  Top stations: ELP 49, ROW 29, NYL 15, HMN 12, IWA 11.
+- The event list holds 90 % of severe dust reports and 81 % of severe station onsets. The missed part is 28 days in
+  nine years (22 of the 133 reports are in 2026, the closed test year, and cannot be used for training).
+- Weaker dust is missed far more: 132 days with visibility <= 3 mi and 301 days with <= 6 mi have no event window.
+- These days have no Dust Storm Warning, so under hard rule 1 they would enter as no-dust samples. Using them as
+  positives needs the "station-confirmed" label variant (also needed for the 267 unwarned reports inside event days).
+  That is a labelling decision and has not been taken.
+- Not a hidden mass of severe storms. Adding the pre-2026 days would add roughly 30 severe onsets (about a fifth more
+  by this script's count); whether that moves onset skill is untested.
