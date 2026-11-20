@@ -347,6 +347,56 @@ def load_sample(path: str | Path) -> dict:
         return {k: z[k] for k in z.files}
 
 
+def label_variant(cfg: dict) -> str | None:
+    """label.variant: None (default) = the strict rule (dust report confirmed by a warning or a Storm Events entry);
+    "station_confirmed" = the strict labels PLUS reports with a real dust code (not haze) and visibility <= 1 mi that
+    no warning covered. A parallel label version for one experiment (v18, 20 Nov): the strict rule stays the main one."""
+    v = (cfg or {}).get("label", {}).get("variant")
+    return str(v) if v else None
+
+
+def load_confirmed(cfg: dict) -> dict | None:
+    """The station-confirmed additions written by scripts/34_add_confirmed_labels.py, or None when label.variant is
+    not station_confirmed. Returns {"<split>/<file>": int8 (S, L + 1)}: columns 0..L-1 are the confirmed label at each
+    lead, the last column the confirmed report at t0 (1 dust, 0 no dust, -1 no report). Only samples that gain at
+    least one positive are stored, so a missing key means "same as the strict labels"."""
+    if label_variant(cfg) != "station_confirmed":
+        return None
+    f = Path(cfg["paths"]["samples"]) / "confirmed_labels.npz"
+    if not f.exists():
+        raise FileNotFoundError(f"{f} missing: run scripts/34_add_confirmed_labels.py before using label.variant station_confirmed")
+    with np.load(f, allow_pickle=False) as z:
+        return {k: z[k] for k in z.files}
+
+
+def apply_confirmed(s: dict, c: np.ndarray | None, radius_cells: int = 3) -> dict:
+    """Return the sample with the station-confirmed labels `c` (one entry of load_confirmed) merged in: station rows
+    that are 0 under the strict rule but 1 in `c` become 1, their 12 km discs in the pixel target are repainted, and
+    the current-report column `st_now` (an INPUT and the genesis definition) is raised the same way. Rows without a
+    report (-1) stay -1; nothing is ever lowered. c None = unchanged."""
+    if c is None:
+        return s
+    add = (c[:, :-1] == 1) & (s["st_y"] == 0)
+    add_now = (c[:, -1] == 1) & (s["st_now"] == 0)
+    if not add.any() and not add_now.any():
+        return s
+    s = dict(s)
+    st_y, st_now = s["st_y"].copy(), s["st_now"].copy()
+    st_y[add] = 1
+    st_now[add_now] = 1
+    if add.any():
+        y, w = s["y"].copy(), s["w"].copy()
+        yy, xx = np.mgrid[0:y.shape[1], 0:y.shape[2]]
+        for k, li in zip(*np.nonzero(add)):
+            m = np.hypot(yy - int(s["st_ij"][k, 0]), xx - int(s["st_ij"][k, 1])) <= radius_cells
+            y[li][m] = 1
+            w[li][m] = np.maximum(w[li][m], 1.0)
+        s["y"], s["w"] = y, w
+    s["st_y"], s["st_now"] = st_y, st_now
+    s["genesis"] = np.array(not bool((st_now == 1).any()))
+    return s
+
+
 def onset_times(event, cfg: dict, step_min: int = 5) -> list[dt.datetime]:
     """EXTRA forecast times at `step_min` cadence through the onset window only (first-warning - hours_before ...
     first warning + 1 h), skipping the times sample_times() already covers. GOES CONUS scans every 5 min, so the

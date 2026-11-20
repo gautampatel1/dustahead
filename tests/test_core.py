@@ -301,3 +301,38 @@ def test_two_tier_road_alerts():
     al = {a["segment"]: a for a in E.road_alerts(probs, genesis_map=gen)}
     assert al["A"]["hit_rate"] == 0.78 and al["B"]["hit_rate"] == 0.14
     assert E.road_alerts(probs, 0.9, genesis_map=gen) == []  # an explicit threshold still overrides the tier policy
+
+
+def test_station_confirmed_labels_only_raise_and_repaint():
+    """The parallel label version adds positives (station rows, pixel discs, the current-report input) and never
+    lowers or un-masks anything; without an entry the sample is returned untouched."""
+    from dustahead.data.sampler import apply_confirmed
+    s = dict(st_ij=np.array([[10, 10], [30, 30], [50, 50]]), st_y=np.array([[0, 0, 0], [1, 1, 0], [-1, 0, 0]], np.int8),
+             st_now=np.array([0, 1, -1], np.int8), y=np.zeros((3, 64, 64), np.float32), w=np.zeros((3, 64, 64), np.float32),
+             genesis=np.array(False))
+    assert apply_confirmed(s, None) is s
+    c = np.array([[0, 1, 1, 1], [0, 0, 0, 0], [1, 0, 0, 1]], np.int8)      # (S, L + 1): leads, then the report at t0
+    o = apply_confirmed(s, c)
+    assert o["st_y"].tolist() == [[0, 1, 1], [1, 1, 0], [-1, 0, 0]]        # strict 1 kept, -1 stays -1
+    assert o["st_now"].tolist() == [1, 1, -1]
+    assert o["y"][1, 10, 10] == 1 and o["w"][1, 10, 12] == 1 and o["y"][0].sum() == 0
+    assert s["st_y"][0].tolist() == [0, 0, 0] and s["y"].sum() == 0        # the stored sample is not modified
+
+
+def test_station_event_days_hidden_from_strict_runs(tmp_path):
+    """Days found from station reports alone carry dust the strict rule labels 0, so only label.variant
+    station_confirmed may see them."""
+    import pandas as pd
+    from dustahead.train.dataset import split_files
+    (tmp_path / "train").mkdir()
+    rows = []
+    for ev in ("dust_20240101_0000", "stndust_20240202_0000"):
+        f = f"{ev}_20240101T0000.npz"
+        (tmp_path / "train" / f).write_bytes(b"")
+        rows.append(dict(split="train", file=f, event=ev, pos15=0, pos30=0, pos60=0))
+    pd.DataFrame(rows).to_csv(tmp_path / "index.csv", index=False)
+    cfg = {"splits": {"val_from_2025": 0.5}}
+    assert len(split_files(tmp_path, "train", cfg)[0]) == 1
+    assert len(split_files(tmp_path, "train", {**cfg, "label": {"variant": "station_confirmed"}})[0]) == 2
+    (tmp_path / "index.csv").unlink()
+    assert len(split_files(tmp_path, "train", cfg)[0]) == 1

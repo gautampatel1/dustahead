@@ -17,8 +17,9 @@ import pandas as pd
 import torch
 from torch.utils.data import Dataset
 
-from ..data.sampler import genesis_per_station, input_stack, load_sample, radar_drop_newest, radar_key, wants_forecast, load_hotspot, wants_dust_now, wants_radar, wants_wind
+from ..data.sampler import apply_confirmed, genesis_per_station, label_variant, load_confirmed, input_stack, load_sample, radar_drop_newest, radar_key, wants_forecast, load_hotspot, wants_dust_now, wants_radar, wants_wind
 
+STATION_EVENT_PREFIX = "stndust_"   # event ids of station-confirmed dust days (scripts/33_station_events.py)
 MAX_STATIONS = 256      # ASOS (~85) + extended Synoptic stations (road-weather, PM10, other visibility)
 
 
@@ -31,9 +32,21 @@ def split_files(root: str | Path, split: str, cfg: dict | None = None) -> tuple[
     root = Path(root)
     idx_path = root / "index.csv"
     idx = pd.read_csv(idx_path) if idx_path.exists() else None
+    variant = label_variant(cfg or {})
+    if idx is not None and variant != "station_confirmed":
+        # station-confirmed event days (no warning; scripts/33) hold dust that the strict rule labels 0: they are
+        # only usable with label.variant station_confirmed and are invisible to every other run
+        idx = idx[~idx.event.astype(str).str.startswith(STATION_EVENT_PREFIX)]
+    if idx is not None and variant == "station_confirmed" and (root / "index_confirmed.csv").exists():
+        c = pd.read_csv(root / "index_confirmed.csv")       # positives per sample under the confirmed labels
+        idx = idx.merge(c, on=["split", "file"], how="left")
+        for k in ("pos15", "pos30", "pos60"):
+            idx[k] = idx["c" + k].fillna(idx[k]).astype(int)
     frac = (cfg or {}).get("splits", {}).get("val_from_2025")
     if idx is None or not frac or split == "test":
         files = sorted((root / split).glob("*.npz"))
+        if variant != "station_confirmed":
+            files = [f for f in files if not f.name.startswith(STATION_EVENT_PREFIX)]
         rows = idx[idx.split == split].set_index("file").loc[[f.name for f in files]].reset_index() if idx is not None and files else None
         return files, rows
     idx = idx.copy()
@@ -87,6 +100,7 @@ class DustDataset(Dataset):
         self.radar_key = radar_key(cfg or {})               # which stored radar block (xr or xr_lag5)
         self.with_wind = wants_wind(cfg or {})              # paint the station wind block (channels.wind)
         self.with_dust_now = wants_dust_now(cfg or {})      # paint the station blowing-dust state (channels.dust_now)
+        self.confirmed = load_confirmed(cfg or {})        # None = strict labels; else the station-confirmed additions
         self.hotspot = load_hotspot(cfg or {})              # dust hotspot climatology (channels.hotspot), loaded once
         # wind target for the wind head: peak wind (max of sustained and gust) >= loss.wind_kt at t0 + lead
         self.wind_kt = float((cfg or {}).get("loss", {}).get("wind_kt", 30.0))
@@ -109,11 +123,19 @@ class DustDataset(Dataset):
         w = np.where(st_pos, pos_weight, np.where(pix_pos, 1.0 + 0.25 * (pos_weight - 1), 1.0))
         return torch.tensor(w, dtype=torch.double)
 
+    def confirmed_sample(self, k: int) -> dict:
+        """Sample k with the label version this dataset was configured for (label.variant)."""
+        s = load_sample(self.files[k])
+        if self.confirmed is None:
+            return s
+        f = Path(self.files[k])
+        return apply_confirmed(s, self.confirmed.get(f"{f.parent.name}/{f.name}"))
+
     def __len__(self):
         return len(self.files)
 
     def __getitem__(self, k):
-        s = load_sample(self.files[k])
+        s = self.confirmed_sample(k)
         st_now = s["st_now"].copy()
         if self.station_dropout > 0:
             st_now[self.rng.random(len(st_now)) < self.station_dropout] = -1       # -1 = no report

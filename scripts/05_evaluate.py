@@ -18,8 +18,10 @@ def main():
     ap.add_argument("--split", default="val")
     ap.add_argument("--baselines", nargs="*", default=["station_persistence", "persistence", "advected", "hrrr_rule"])
     ap.add_argument("--config", default=None, help="experiment overlay; must match the split the run was trained with")
+    ap.add_argument("--tag", default="", help="suffix for the output files (eval_<split><tag>.json), e.g. _confirmed, so a "
+                                              "second scoring of one checkpoint does not overwrite the first")
     a = ap.parse_args()
-    run(a.ckpt, load_config(a.config), a.split, tuple(a.baselines))
+    run(a.ckpt, load_config(a.config), a.split, tuple(a.baselines), tag=a.tag)
 
 
 if __name__ == "__main__":

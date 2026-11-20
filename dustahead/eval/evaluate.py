@@ -36,7 +36,7 @@ def collect(model, ds: DustDataset, device, baselines=(), with_forecast: bool = 
     out = {name: [] for name in ("model",) + tuple(baselines)}
     ys, gen, ev, src, fss_pix = [], [], [], [], {name: [] for name in out}
     for k in range(len(ds)):
-        s = load_sample(ds.files[k])
+        s = ds.confirmed_sample(k)          # strict labels unless label.variant says otherwise
         x = input_stack(s, None, with_forecast, with_radar, radar_drop, rkey, with_wind, None, with_dust_now, hotspot)
         with torch.no_grad():
             p = model(torch.from_numpy(x)[None].to(device))[0].cpu().numpy()
@@ -106,7 +106,7 @@ def tier_scores(p, dvis, dvis_now, y, gen, ev, leads, vis_mi: float, B: int) -> 
 
 
 def run(ckpt: str | Path, cfg: dict, split: str = "test", baselines=("persistence", "advected", "hrrr_rule"),
-        device: str | None = None, calibrate_on: str = "val") -> dict:
+        device: str | None = None, calibrate_on: str = "val", tag: str = "") -> dict:
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
     model, ck = load_checkpoint(ckpt, device)
     wf = wants_forecast(ck["cfg"])          # the checkpoint knows whether it was trained with the forecast block
@@ -190,9 +190,9 @@ def run(ckpt: str | Path, cfg: dict, split: str = "test", baselines=("persistenc
                  wind_now=np.concatenate(wind_out["now"])) if wind_out.get("p") else {}     # wind head, same row order
     if wind_out.get("tier_p"):
         extra.update(tier_p=np.concatenate(wind_out["tier_p"]), dvis=np.concatenate(wind_out["dvis"]), dvis_now=np.concatenate(wind_out["dvis_now"]))
-    np.savez_compressed(Path(ckpt).parent / f"eval_{split}_preds.npz", y=y, genesis=gen, event=ev, src=src,
+    np.savez_compressed(Path(ckpt).parent / f"eval_{split}{tag}_preds.npz", y=y, genesis=gen, event=ev, src=src,
                         **{f"p_{n}": v for n, v in preds.items()}, **extra)
-    out = Path(ckpt).parent / f"eval_{split}.json"
+    out = Path(ckpt).parent / f"eval_{split}{tag}.json"
     out.write_text(json.dumps(report, indent=1, default=float))
     print(json.dumps({k: v for k, v in report.items() if k != "models"}, indent=1, default=float))
     if "tier" in report:
