@@ -42,6 +42,8 @@ python scripts/03_build_samples.py --limit 3                          # first re
 python scripts/04_train.py --model gated_unet
 python scripts/05_evaluate.py --ckpt runs/latest/best.pt --split val
 streamlit run dustahead/app/dashboard.py -- --ckpt runs/latest/best.pt --demo
+python scripts/30_publish.py --fixture                                # web/public/demo bundles (no model); --live --once --upload on the PC
+cd web && npm install && npm run dev                                  # Next.js static web app (MapLibre) reading latest.json; see web/README.md
 ```
 
 ## State on 2026-10-27

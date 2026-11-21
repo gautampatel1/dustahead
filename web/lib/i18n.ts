@@ -1,0 +1,357 @@
+/** English and Spanish text for the site. The Spanish still needs a native speaker's review before release. */
+import type { RoadState } from "./bundle";
+
+export type Lang = "en" | "es";
+
+const en = {
+  tabs: { map: "Map", roads: "Road conditions", warnings: "Warnings", safety: "Safety", about: "About" },
+  updated: (t: string) => `Updated ${t}`,
+  noNewForecast: (t: string) => `No new forecast since ${t}`,
+  language: "Language",
+  timeZone: "Times shown in",
+  tzAZ: "Arizona time",
+  tzMT: "Mountain time (NM, TX)",
+  tzDevice: "My device's time",
+  demoFixture: "Demo mode: this is an example storm, not a real forecast.",
+  demoReplay: (title: string) => `Replay of a past event: ${title}`,
+  loading: "Loading the latest forecast…",
+  loadFail: "We can't reach the forecast right now. This page will keep trying every minute. Check NWS warnings and road signs in the meantime.",
+
+  // map tab
+  summaryNone: "No dust expected on I-10 in the next hour.",
+  summarySome: (n: number) => (n === 1 ? "Dust is expected on 1 stretch of I-10 in the next hour." : `Dust is expected on ${n} stretches of I-10 in the next hour.`),
+  showChanceIn: "Show the chance of dust in",
+  minutes: (m: number) => `${m} min`,
+  atTime: (t: string) => `at ${t}`,
+  legendTitle: "Road status",
+  legendChance: "Chance of dust",
+  low: "Low",
+  high: "High",
+  state: { clear: "Clear", watch: "Watch", severe: "Severe", held: "Easing", early: "Developing", unknown: "No data" } as Record<RoadState, string>,
+  stateHelp: {
+    clear: "Nothing expected on this stretch in the next hour.",
+    watch: "Dust is likely. Slow down and keep an eye on visibility.",
+    severe: "A dust storm is likely. Avoid this stretch if you can, or be ready to pull off.",
+    held: "The chance is dropping. Alerts stay on for at least 30 minutes so they don't switch on and off.",
+    early: "The forecast shows dust, but no weather station nearby has reported any yet. Early forecasts like this are less reliable.",
+    unknown: "There's no current forecast for this stretch.",
+  } as Record<RoadState, string>,
+  dustWhen: (lead: number) => (lead <= 15 ? "Within 15 minutes" : `In about ${lead} minutes`),
+  dustNow: "Dust reported nearby",
+  roadAlerts: "Road alerts",
+  backToList: "Back to all alerts",
+  chanceOfDust: "Chance of dust",
+  inMin: (m: number) => `In ${m} min`,
+  mileposts: "Mileposts",
+  reportedNearby: "Dust reported within 50 km",
+  yes: "Yes",
+  no: "No",
+  nwsWarning: "NWS warning",
+  none: "None",
+  unavailable: "Not available",
+  stationsTitle: (t: string) => `Weather stations at ${t}`,
+  stationsDust: "Reporting dust:",
+  stationsClear: "Clear:",
+  stationsNone: "No station reports in the last 20 minutes.",
+  staleTitle: (m: number) => `No new forecast for ${Math.round(m)} minutes`,
+  staleBody: "Don't read the map as all-clear. Check NWS warnings and road signs until it's back.",
+  nwsActive: (type: string, area: string, until: string) => `${type} for ${area} until ${until}`,
+  replayPrev: "Earlier",
+  replayNext: "Later",
+  replayPlay: "Play",
+  replayPause: "Pause",
+  forecastAt: (t: string) => `Forecast made at ${t}`,
+  simulateStale: "Show what happens when forecasts stop",
+
+  // roads tab
+  routeTitle: "Check your route",
+  from: "From",
+  to: "To",
+  routeClear: (a: string, b: string) => `${a} to ${b}: no dust expected in the next hour.`,
+  routeSome: (a: string, b: string, n: number, total: number) => `${a} to ${b}: dust expected on ${n} of ${total} stretches.`,
+  routeStale: (a: string, b: string) => `${a} to ${b}: no current forecast. Check road signs and NWS warnings.`,
+  allStretches: "All stretches of I-10",
+  onlyAlerts: "Only show stretches with alerts",
+  colStretch: "Stretch",
+  colMileposts: "Mileposts",
+  colStatus: "Status",
+  colIn: (m: number) => `${m} min`,
+  roadsNote: "Chances are the highest anywhere on the stretch. An alert starts at 80%.",
+
+  // warnings tab
+  warnTitle: "National Weather Service warnings",
+  warnIntro: "Official dust warnings for Arizona, New Mexico and the El Paso area. These always apply, whatever our forecast says.",
+  warnNone: "There are no dust warnings right now.",
+  warnUnknown: "We couldn't reach the NWS warning feed. Check weather.gov directly.",
+  warnReplay: "Warnings aren't saved with replays of past events.",
+  warnFrom: "From",
+  warnUntil: "Until",
+  warnLink: "Open weather.gov alerts",
+
+  // safety tab
+  safetyTitle: "Driving in blowing dust",
+  safetyIntro: "Dust storms can drop visibility to zero in seconds. Most dust-storm crashes happen when drivers keep going or stop in a travel lane.",
+  aheadTitle: "If you see a dust storm ahead",
+  ahead: [
+    "Don't drive into it. Exit the highway if you can.",
+    "If you can't exit, slow down and look for a safe place to pull off.",
+  ],
+  caughtTitle: "If you're caught in one",
+  caught: [
+    "Pull off the road as far as you can. Don't stop in a travel lane.",
+    "Turn off all your lights, including hazard flashers, so other drivers don't follow you off the road.",
+    "Set the parking brake and take your foot off the brake pedal.",
+    "Stay in the car with your seat belt on and wait for the dust to pass.",
+  ],
+  cantTitle: "If you can't pull off",
+  cant: [
+    "Turn on your low-beam headlights and slow to a speed that matches what you can see.",
+    "Use the painted lines to stay in your lane, and sound your horn now and then.",
+  ],
+  beforeTitle: "Before you drive",
+  before: [
+    "Check this map and the NWS warnings.",
+    "Check road closures on your state's 511 service.",
+    "Dust season peaks in the summer monsoon (June to September) and with spring wind storms.",
+  ],
+  linksTitle: "Useful links",
+  links: [
+    { label: "Pull Aside, Stay Alive (Arizona DOT)", href: "https://www.pullasidestayalive.org/" },
+    { label: "NWS dust storm safety", href: "https://www.weather.gov/safety/wind-dust-storm" },
+    { label: "AZ 511 road conditions", href: "https://www.az511.gov/" },
+    { label: "NMRoads", href: "https://www.nmroads.com/" },
+    { label: "DriveTexas", href: "https://drivetexas.org/" },
+  ],
+  emergency: "In an emergency, call 911.",
+
+  // about tab
+  aboutTitle: "About DustAhead",
+  aboutIntro:
+    "DustAhead forecasts blowing dust on Interstate 10 between the California line and El Paso, 15 to 60 minutes ahead. It's a student research project at Northeastern University (CS 7150 Deep Learning), not an official warning service.",
+  howTitle: "How the forecast works",
+  how: [
+    "Every 10 minutes we collect the last half hour of GOES weather satellite images, lightning data, the HRRR weather model, and reports from airport weather stations.",
+    "A neural network turns these into a map of the chance of dust in 15, 30 and 60 minutes, on a grid of about 4 km squares.",
+    "A stretch of road gets an alert when the chance anywhere on it reaches 80%. Alerts stay on for at least 30 minutes and end when the chance falls below 50%.",
+  ],
+  accTitle: "How accurate it is",
+  acc: "We tested the forecast on dust events from 2025 that it never saw in training. Its critical success index (hits divided by hits, misses and false alarms) was 0.49 at 15 minutes, 0.39 at 30 minutes and 0.27 at 60 minutes. Simply assuming that dust where it's reported now will stay there scores 0.44, 0.35 and 0.19.",
+  limitsTitle: "Limits",
+  limits: [
+    "It is much better at dust that is already blowing somewhere than at storms that haven't started yet. Those show as \"Developing\".",
+    "The road is drawn as straight lines between exits, so positions can be off by a few kilometres.",
+    "It has not yet been tested on 2026 storms. That test runs once, at the end of the project.",
+  ],
+  sourcesTitle: "Data sources",
+  sources: [
+    "GOES-East satellite imagery and lightning (NOAA)",
+    "HRRR weather model (NOAA)",
+    "ASOS airport weather stations, via Iowa Environmental Mesonet",
+    "NWS warnings (api.weather.gov)",
+    "Map data © OpenStreetMap contributors, tiles by OpenFreeMap",
+  ],
+  teamTitle: "Team",
+  team: "Gautam Patel (data), Sanidhya Chimurkar (labels and evaluation), Aayush Katoch (product). Advisor: Prof. Ilmi Yoon.",
+  statusTitle: "Forecast status",
+  stForecast: "Forecast time",
+  stIssued: "Published",
+  stAge: "Age",
+  stAgeVal: (m: number) => `${Math.round(m)} min`,
+  stSource: "Source",
+  stSourceVal: { live: "Live", replay: "Replay", fixture: "Demo" } as Record<string, string>,
+  stModel: "Model",
+  stNws: "NWS feed",
+  stNwsOk: (n: number) => (n === 0 ? "Working, no warnings" : `Working, ${n} warning${n > 1 ? "s" : ""}`),
+  stNwsDown: "Unavailable",
+  stStations: "Station reports",
+  stOk: "Current",
+  stStale: "Out of date",
+  disclaimer: "DustAhead is a research prototype. Always follow official NWS warnings and road signs.",
+};
+
+type Copy = typeof en;
+
+const es: Copy = {
+  tabs: { map: "Mapa", roads: "Estado de la carretera", warnings: "Alertas", safety: "Seguridad", about: "Acerca de" },
+  updated: (t) => `Actualizado a las ${t}`,
+  noNewForecast: (t) => `Sin pronóstico nuevo desde las ${t}`,
+  language: "Idioma",
+  timeZone: "Horas en",
+  tzAZ: "Hora de Arizona",
+  tzMT: "Hora de la montaña (NM, TX)",
+  tzDevice: "Hora de mi dispositivo",
+  demoFixture: "Modo de demostración: esta es una tormenta de ejemplo, no un pronóstico real.",
+  demoReplay: (title) => `Repetición de un evento pasado: ${title}`,
+  loading: "Cargando el pronóstico más reciente…",
+  loadFail: "No podemos obtener el pronóstico ahora. Esta página lo intentará cada minuto. Mientras tanto, revise las alertas del NWS y las señales de la carretera.",
+
+  summaryNone: "No se espera polvo en la I-10 en la próxima hora.",
+  summarySome: (n) => (n === 1 ? "Se espera polvo en 1 tramo de la I-10 en la próxima hora." : `Se espera polvo en ${n} tramos de la I-10 en la próxima hora.`),
+  showChanceIn: "Mostrar la probabilidad de polvo en",
+  minutes: (m) => `${m} min`,
+  atTime: (t) => `a las ${t}`,
+  legendTitle: "Estado de la carretera",
+  legendChance: "Probabilidad de polvo",
+  low: "Baja",
+  high: "Alta",
+  state: { clear: "Despejado", watch: "Vigilancia", severe: "Grave", held: "Bajando", early: "En formación", unknown: "Sin datos" },
+  stateHelp: {
+    clear: "No se espera nada en este tramo en la próxima hora.",
+    watch: "Es probable que haya polvo. Baje la velocidad y vigile la visibilidad.",
+    severe: "Es probable una tormenta de polvo. Evite este tramo si puede, o esté listo para salir del camino.",
+    held: "La probabilidad está bajando. Las alertas duran al menos 30 minutos para que no se enciendan y apaguen.",
+    early: "El pronóstico muestra polvo, pero ninguna estación cercana lo ha reportado todavía. Estos pronósticos tempranos son menos confiables.",
+    unknown: "No hay un pronóstico actual para este tramo.",
+  },
+  dustWhen: (lead) => (lead <= 15 ? "En menos de 15 minutos" : `En unos ${lead} minutos`),
+  dustNow: "Se reporta polvo cerca",
+  roadAlerts: "Alertas en la carretera",
+  backToList: "Volver a todas las alertas",
+  chanceOfDust: "Probabilidad de polvo",
+  inMin: (m) => `En ${m} min`,
+  mileposts: "Millas",
+  reportedNearby: "Polvo reportado a menos de 50 km",
+  yes: "Sí",
+  no: "No",
+  nwsWarning: "Alerta del NWS",
+  none: "Ninguna",
+  unavailable: "No disponible",
+  stationsTitle: (t) => `Estaciones meteorológicas a las ${t}`,
+  stationsDust: "Reportan polvo:",
+  stationsClear: "Despejado:",
+  stationsNone: "Ninguna estación reportó en los últimos 20 minutos.",
+  staleTitle: (m) => `Sin pronóstico nuevo desde hace ${Math.round(m)} minutos`,
+  staleBody: "No tome el mapa como si estuviera despejado. Revise las alertas del NWS y las señales hasta que vuelva.",
+  nwsActive: (type, area, until) => `${type} para ${area} hasta las ${until}`,
+  replayPrev: "Anterior",
+  replayNext: "Siguiente",
+  replayPlay: "Reproducir",
+  replayPause: "Pausa",
+  forecastAt: (t) => `Pronóstico hecho a las ${t}`,
+  simulateStale: "Mostrar qué pasa cuando no llegan pronósticos",
+
+  routeTitle: "Revise su ruta",
+  from: "Desde",
+  to: "Hasta",
+  routeClear: (a, b) => `${a} a ${b}: no se espera polvo en la próxima hora.`,
+  routeSome: (a, b, n, total) => `${a} a ${b}: se espera polvo en ${n} de ${total} tramos.`,
+  routeStale: (a, b) => `${a} a ${b}: no hay pronóstico actual. Revise las señales y las alertas del NWS.`,
+  allStretches: "Todos los tramos de la I-10",
+  onlyAlerts: "Mostrar solo tramos con alertas",
+  colStretch: "Tramo",
+  colMileposts: "Millas",
+  colStatus: "Estado",
+  colIn: (m) => `${m} min`,
+  roadsNote: "Las probabilidades son las más altas en cualquier punto del tramo. Una alerta empieza en 80 %.",
+
+  warnTitle: "Alertas del Servicio Meteorológico Nacional",
+  warnIntro: "Alertas oficiales de polvo para Arizona, Nuevo México y la zona de El Paso. Siempre aplican, diga lo que diga nuestro pronóstico.",
+  warnNone: "No hay alertas de polvo en este momento.",
+  warnUnknown: "No pudimos conectar con el servicio de alertas del NWS. Revise weather.gov directamente.",
+  warnReplay: "Las alertas no se guardan en las repeticiones de eventos pasados.",
+  warnFrom: "Desde",
+  warnUntil: "Hasta",
+  warnLink: "Abrir alertas en weather.gov",
+
+  safetyTitle: "Manejar con polvo en el aire",
+  safetyIntro: "Las tormentas de polvo pueden dejar la visibilidad en cero en segundos. La mayoría de los choques ocurren cuando los conductores siguen adelante o se detienen en un carril.",
+  aheadTitle: "Si ve una tormenta de polvo adelante",
+  ahead: [
+    "No entre en ella. Salga de la autopista si puede.",
+    "Si no puede salir, baje la velocidad y busque un lugar seguro para orillarse.",
+  ],
+  caughtTitle: "Si la tormenta lo alcanza",
+  caught: [
+    "Salga del camino lo más que pueda. No se detenga en un carril.",
+    "Apague todas las luces, incluidas las intermitentes, para que otros conductores no lo sigan fuera del camino.",
+    "Ponga el freno de mano y quite el pie del pedal del freno.",
+    "Quédese en el carro con el cinturón puesto y espere a que pase el polvo.",
+  ],
+  cantTitle: "Si no puede salir del camino",
+  cant: [
+    "Encienda las luces bajas y maneje a una velocidad acorde con lo que puede ver.",
+    "Use las líneas pintadas para mantenerse en su carril y toque el claxon de vez en cuando.",
+  ],
+  beforeTitle: "Antes de manejar",
+  before: [
+    "Revise este mapa y las alertas del NWS.",
+    "Revise los cierres en el servicio 511 de su estado.",
+    "La temporada de polvo es más fuerte en el monzón de verano (junio a septiembre) y con los vientos de primavera.",
+  ],
+  linksTitle: "Enlaces útiles",
+  links: [
+    { label: "Pull Aside, Stay Alive (ADOT, en inglés)", href: "https://www.pullasidestayalive.org/" },
+    { label: "Seguridad ante tormentas de polvo (NWS)", href: "https://www.weather.gov/safety/wind-dust-storm" },
+    { label: "AZ 511 estado de las carreteras", href: "https://www.az511.gov/" },
+    { label: "NMRoads", href: "https://www.nmroads.com/" },
+    { label: "DriveTexas", href: "https://drivetexas.org/" },
+  ],
+  emergency: "En una emergencia, llame al 911.",
+
+  aboutTitle: "Acerca de DustAhead",
+  aboutIntro:
+    "DustAhead pronostica polvo en la Interestatal 10 entre la línea de California y El Paso, con 15 a 60 minutos de anticipación. Es un proyecto estudiantil de investigación de Northeastern University (CS 7150 Deep Learning), no un servicio oficial de alertas.",
+  howTitle: "Cómo funciona el pronóstico",
+  how: [
+    "Cada 10 minutos reunimos la última media hora de imágenes del satélite GOES, datos de rayos, el modelo meteorológico HRRR y los reportes de las estaciones de los aeropuertos.",
+    "Una red neuronal convierte estos datos en un mapa de la probabilidad de polvo en 15, 30 y 60 minutos, en cuadros de unos 4 km.",
+    "Un tramo recibe una alerta cuando la probabilidad en cualquier punto llega a 80 %. Las alertas duran al menos 30 minutos y terminan cuando la probabilidad baja de 50 %.",
+  ],
+  accTitle: "Qué tan preciso es",
+  acc: "Probamos el pronóstico con eventos de polvo de 2025 que no vio durante el entrenamiento. Su índice de éxito crítico (aciertos entre aciertos, fallas y falsas alarmas) fue 0.49 a 15 minutos, 0.39 a 30 minutos y 0.27 a 60 minutos. Suponer simplemente que el polvo reportado ahora seguirá ahí da 0.44, 0.35 y 0.19.",
+  limitsTitle: "Limitaciones",
+  limits: [
+    "Funciona mucho mejor con polvo que ya está soplando en algún lugar que con tormentas que aún no empiezan. Esas aparecen como \"En formación\".",
+    "La carretera se dibuja con líneas rectas entre salidas, así que las posiciones pueden variar unos kilómetros.",
+    "Todavía no se ha probado con tormentas de 2026. Esa prueba se hace una sola vez, al final del proyecto.",
+  ],
+  sourcesTitle: "Fuentes de datos",
+  sources: [
+    "Imágenes y rayos del satélite GOES-East (NOAA)",
+    "Modelo meteorológico HRRR (NOAA)",
+    "Estaciones ASOS de aeropuertos, vía Iowa Environmental Mesonet",
+    "Alertas del NWS (api.weather.gov)",
+    "Datos del mapa © colaboradores de OpenStreetMap, mosaicos de OpenFreeMap",
+  ],
+  teamTitle: "Equipo",
+  team: "Gautam Patel (datos), Sanidhya Chimurkar (etiquetas y evaluación), Aayush Katoch (producto). Asesora: Prof. Ilmi Yoon.",
+  statusTitle: "Estado del pronóstico",
+  stForecast: "Hora del pronóstico",
+  stIssued: "Publicado",
+  stAge: "Antigüedad",
+  stAgeVal: (m) => `${Math.round(m)} min`,
+  stSource: "Origen",
+  stSourceVal: { live: "En vivo", replay: "Repetición", fixture: "Demostración" },
+  stModel: "Modelo",
+  stNws: "Servicio del NWS",
+  stNwsOk: (n) => (n === 0 ? "Funciona, sin alertas" : `Funciona, ${n} alerta${n > 1 ? "s" : ""}`),
+  stNwsDown: "No disponible",
+  stStations: "Reportes de estaciones",
+  stOk: "Al día",
+  stStale: "Desactualizado",
+  disclaimer: "DustAhead es un prototipo de investigación. Siga siempre las alertas oficiales del NWS y las señales de la carretera.",
+};
+
+export const COPY: Record<Lang, Copy> = { en, es };
+export type { Copy };
+
+/** Clock time such as "4:10 PM" in the chosen zone. */
+export function clockShort(iso: string | number, lang: Lang, tz?: string): string {
+  const d = new Date(iso);
+  try {
+    return new Intl.DateTimeFormat(lang === "es" ? "es-US" : "en-US", { hour: "numeric", minute: "2-digit", timeZone: tz }).format(d);
+  } catch {
+    return d.toLocaleTimeString();
+  }
+}
+
+export function dateLong(iso: string | number, lang: Lang, tz?: string): string {
+  const d = new Date(iso);
+  try {
+    return new Intl.DateTimeFormat(lang === "es" ? "es-US" : "en-US", {
+      month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: tz, timeZoneName: "short",
+    }).format(d);
+  } catch {
+    return d.toLocaleString();
+  }
+}

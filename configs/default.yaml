@@ -120,6 +120,10 @@ product:                 # alert policy for the prototype (validated on the 2025
     nearby:    {thresholds: [0.50, 0.50, 0.50], hit_rate: 0.78, coverage: 0.87}
     new_storm: {thresholds: [0.30, 0.30, 0.30], hit_rate: 0.14, coverage: 0.25}
 
+publish:                 # scripts/30_publish.py -> web + phone apps (dustahead/app/bundle.py). Secrets: environment only
+  out_dir: runs/publish                   # local publish root; mirrors what is uploaded to R2
+  stale_after_min: 25                     # the apps show "No forecast" (never "clear") once t0 is this old
+
 paths:
   data_root: data
   raw: data/raw          # only Storm Events gz files land here; GOES/GLM/HRRR are read remotely
