@@ -1017,3 +1017,23 @@ Job 115. v11f recipe, seeds 42 / 7 / 11 in both arms; ASOS; mean (standard devia
   differences are about one seed standard deviation, so on fold 0 the honest reading is "no gain", not "worse".
 - The confirmed labels add only 3 to 6 onsets to the fold-0 validation half, so both scorings say the same thing.
 - Fold 1 (job 116, the larger half) decides.
+
+## 21 Nov — v18 on fold 1, and the two-fold verdict: station-confirmed labels do not improve the model
+
+Job 116. Same design as fold 0; mean (standard deviation over three seeds); +15 / +30 / +60.
+
+| fold 1 | v11f (baseline) | v18 (confirmed labels + new days) |
+|---|---|---|
+| scored on STRICT labels: onset CSI at 0.5 (158 / 250 / 337 onsets) | 0.023 (0.006) / 0.050 (0.022) / 0.068 (0.026) | 0.034 (0.009) / 0.056 (0.028) / 0.070 (0.031) |
+| onset POD | 0.04 / 0.09 / 0.13 | 0.08 / 0.13 / 0.14 |
+| onset FAR | 0.94 / 0.90 / 0.87 | 0.94 / 0.91 / 0.87 |
+| all cases, best threshold (persistence 0.513 / 0.451 / 0.362) | 0.466 / 0.398 / 0.312 | 0.449 / 0.393 / 0.301 |
+| scored on CONFIRMED labels: onset CSI at 0.5 (176 / 273 / 368 onsets) | 0.022 / 0.048 / 0.064 | 0.037 / 0.055 / 0.068 |
+| all cases, best threshold (persistence 0.507 / 0.450 / 0.363) | 0.463 / 0.395 / 0.310 | 0.448 / 0.397 / 0.307 |
+
+- Fold 1 onsets: v18 is ahead by 0.002 to 0.011, well inside one seed standard deviation (0.01 to 0.03). Fold 0 was
+  behind by 0 to 0.02. The two folds point in opposite directions and both differences are within seed noise.
+- All cases: lower or level on both folds (fold 0 −0.02 to −0.04, fold 1 −0.01 to −0.02 on strict labels).
+- Verdict: **no gain**. About 9 % more positives and 23 more days do not move onset skill. The strict rule stays the
+  only label version in use; `label.variant` stays in the code, off by default. The 372 unbuilt sample times were not
+  filled in (no sign that more of the same would help). Direction closed.
