@@ -999,3 +999,21 @@ Approved by Gautam on 20 Nov as a parallel experiment; the strict rule stays the
 - Baseline seed 5 (v11f recipe, fold 0): onset CSI at 0.5 0.083 / 0.089 / 0.138, all cases 0.479 / 0.369 / 0.246.
   Seed 23 crashed at epoch 12 when code was synced during its training; its evaluation and the five-seed file from
   job 113 are invalid and it is retrained in job 117.
+
+## 21 Nov — v18 (station-confirmed labels + 23 station-only days), fold 0: no gain; fold 1 pending
+
+Job 115. v11f recipe, seeds 42 / 7 / 11 in both arms; ASOS; mean (standard deviation over seeds); +15 / +30 / +60.
+
+| fold 0 | v11f (strict labels, baseline) | v18 (confirmed labels + new days) |
+|---|---|---|
+| scored on STRICT labels: onset CSI at 0.5 (46 / 83 / 130 onsets) | 0.071 (0.010) / 0.088 (0.011) / 0.122 (0.020) | 0.050 (0.014) / 0.088 (0.008) / 0.105 (0.023) |
+| onset POD | 0.22 / 0.38 / 0.43 | 0.17 / 0.31 / 0.38 |
+| onset FAR | 0.90 / 0.90 / 0.85 | 0.93 / 0.89 / 0.87 |
+| all cases, best threshold (persistence 0.443 / 0.354 / 0.191) | 0.486 / 0.360 / 0.228 | 0.449 / 0.338 / 0.201 |
+| scored on CONFIRMED labels: onset CSI at 0.5 (49 / 88 / 136 onsets) | 0.064 / 0.087 / 0.121 | 0.050 / 0.091 / 0.108 |
+| all cases, best threshold (persistence 0.430 / 0.341 / 0.184) | 0.474 / 0.355 / 0.224 | 0.435 / 0.332 / 0.202 |
+
+- On either label version v18 is level at +30 and lower at +15 and +60, and lower on all cases at every lead. The
+  differences are about one seed standard deviation, so on fold 0 the honest reading is "no gain", not "worse".
+- The confirmed labels add only 3 to 6 onsets to the fold-0 validation half, so both scorings say the same thing.
+- Fold 1 (job 116, the larger half) decides.
