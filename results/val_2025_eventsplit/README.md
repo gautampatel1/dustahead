@@ -1037,3 +1037,30 @@ Job 116. Same design as fold 0; mean (standard deviation over three seeds); +15 
 - Verdict: **no gain**. About 9 % more positives and 23 more days do not move onset skill. The strict rule stays the
   only label version in use; `label.variant` stays in the code, off by default. The 372 unbuilt sample times were not
   filled in (no sign that more of the same would help). Direction closed.
+
+## 21 Nov — five seeds of the v11f recipe on fold 0: slightly better than three, same conclusion
+
+Job 117 (seed 23 retrained in full; the truncated run of 20 Nov is discarded). `results/seed_ensemble_v11f_fold0_5seeds.json`.
+Fold 0, ASOS, +15 / +30 / +60 (46 / 83 / 130 onsets).
+
+| member | onset CSI at 0.5 | onset POD | onset FAR | all cases, best threshold |
+|---|---|---|---|---|
+| seed 42 | 0.060 / 0.076 / 0.104 | 0.11 / 0.27 / 0.32 | 0.88 / 0.90 / 0.87 | 0.490 / 0.359 / 0.214 |
+| seed 7 | 0.074 / 0.099 / 0.143 | 0.35 / 0.48 / 0.51 | 0.91 / 0.89 / 0.83 | 0.487 / 0.382 / 0.255 |
+| seed 11 | 0.079 / 0.088 / 0.120 | 0.22 / 0.39 / 0.46 | 0.89 / 0.90 / 0.86 | 0.483 / 0.339 / 0.216 |
+| seed 23 | 0.072 / 0.115 / 0.143 | 0.17 / 0.27 / 0.32 | 0.89 / 0.83 / 0.80 | 0.523 / 0.394 / 0.270 |
+| seed 5 | 0.083 / 0.089 / 0.138 | 0.26 / 0.29 / 0.38 | 0.89 / 0.89 / 0.82 | 0.479 / 0.369 / 0.246 |
+| mean of five (sd) | 0.073 (0.009) / 0.093 (0.015) / 0.130 (0.017) | | | 0.492 / 0.369 / 0.240 |
+
+| ensemble (mean probability) | three seeds | five seeds |
+|---|---|---|
+| onset CSI at 0.5 | 0.071 / 0.114 / 0.167 | 0.077 / 0.130 / 0.172 |
+| onset CSI, best threshold | 0.098 / 0.114 / 0.167 | 0.112 / 0.130 / 0.175 |
+| onset FAR at 0.5 | 0.88 / 0.86 / 0.80 | 0.84 / 0.83 / 0.76 |
+| all cases, best threshold (persistence 0.443 / 0.354 / 0.191) | 0.503 / 0.387 / 0.251 | 0.516 / 0.393 / 0.270 |
+
+- Five-seed ensemble against its average member, onset at 0.5: +0.004 (p 0.41) / +0.037 (p 0.014) / +0.043 (p 0.05).
+- Going from three to five members adds 0.005 to 0.016 on onsets and 0.006 to 0.019 on all cases. Fold 0 only: on
+  19 Nov the larger fold 1 cut the three-seed gain to a non-significant +0.013 at +60, so the same discount applies
+  here until fold 1 has five seeds.
+- Verdict unchanged: a seed ensemble is a small, steady increment and removes run-to-run luck. Not a breakthrough.
