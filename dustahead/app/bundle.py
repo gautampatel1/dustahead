@@ -129,6 +129,23 @@ def stations_json(st_ij, st_now, grid, names: dict | None = None) -> list[dict]:
     return out
 
 
+def tiers_json(P: dict) -> dict | None:
+    """The two alert tiers (product.tiers) as the apps need them, or None when tiers are off.
+    `rated` is True only when the product model is the one the hit rates were measured for (as in road_alerts);
+    otherwise the apps must not show the rates."""
+    T = P.get("tiers") or {}
+    if not T.get("enabled"):
+        return None
+    ck = [str(c).replace("\\", "/") for c in P.get("checkpoints", [])]
+    rated = ck == [str(c) for c in T.get("validated_for", [])]
+    out = dict(rated=rated)
+    for k in ("nearby", "new_storm"):
+        t = T[k]
+        out[k] = dict(thresholds=list(t["thresholds"]), hit_rate=t.get("hit_rate") if rated else None,
+                      coverage=t.get("coverage") if rated else None)
+    return out
+
+
 def build_bundle(fc: dict, engine, *, source: str, issued=None, nws: list | None = None,
                  station_names: dict | None = None, layers: dict | None = None) -> dict:
     """The latest.json document for one forecast.
@@ -158,7 +175,8 @@ def build_bundle(fc: dict, engine, *, source: str, issued=None, nws: list | None
             continue
         alerts.append(dict(segment=sid, name=a["segment"].removeprefix("I-10 "), lead_min=int(a["lead_min"]),
                            p_max=round(float(a["p_max"]), 3), level=a["level"], genesis=bool(a.get("genesis")),
-                           held=bool(a.get("held", False))))
+                           held=bool(a.get("held", False)), tier=a.get("tier"),
+                           hit_rate=(round(float(a["hit_rate"]), 3) if a.get("hit_rate") is not None else None)))
     order = {s["id"]: k for k, s in enumerate(segs)}
     alerts.sort(key=lambda a: order[a["segment"]])
     stations = stations_json(fc.get("station_ij"), fc.get("station_now"), engine.grid, station_names)
@@ -176,7 +194,7 @@ def build_bundle(fc: dict, engine, *, source: str, issued=None, nws: list | None
         policy=dict(thresholds=P.get("thresholds"), severe_margin=P.get("severe_margin", 0.1),
                     release=P.get("release_threshold", 0.5), min_hold_min=10 * int(P.get("min_hold_steps", 3)),
                     stale_after_min=int(cfg.get("publish", {}).get("stale_after_min", 25)),
-                    genesis_km=50),
+                    genesis_km=50, tiers=tiers_json(P)),
         segments=segs,
         alerts=alerts,
         stations=stations,

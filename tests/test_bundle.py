@@ -88,6 +88,11 @@ def test_bundle_carries_the_policy_decision(engine, tmp_path):
     assert seg["p"] == [0.95, 0.95, 0.95] and seg["mp"] == [208, 219] and seg["genesis"]
     assert doc["stations"][0]["dust"] is False and doc["dust_now"] == []
     assert doc["policy"]["stale_after_min"] == 25 and doc["nws"] == []
+    # two alert tiers (product.tiers): no station reports dust within 50 km, so this is the "new storm" tier, and the
+    # default config's product model is the one the hit rates were measured for, so the rate is published
+    T = doc["policy"]["tiers"]
+    if T is not None:
+        assert a["tier"] == "new_storm" and T["rated"] and a["hit_rate"] == T["new_storm"]["hit_rate"]
 
 
 def test_png_puts_dust_where_the_model_put_it(engine, tmp_path):

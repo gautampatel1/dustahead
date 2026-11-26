@@ -27,17 +27,25 @@ const en = {
   legendChance: "Chance of dust",
   low: "Low",
   high: "High",
-  state: { clear: "Clear", watch: "Watch", severe: "Severe", held: "Easing", early: "Developing", unknown: "No data" } as Record<RoadState, string>,
+  state: { clear: "Clear", watch: "Watch", severe: "Severe", held: "Easing", early: "Dust possible", unknown: "No data" } as Record<RoadState, string>,
   stateHelp: {
     clear: "Nothing expected on this stretch in the next hour.",
     watch: "Dust is likely. Slow down and keep an eye on visibility.",
     severe: "A dust storm is likely. Avoid this stretch if you can, or be ready to pull off.",
     held: "The chance is dropping. Alerts stay on for at least 30 minutes so they don't switch on and off.",
-    early: "The forecast shows dust, but no weather station nearby has reported any yet. Early forecasts like this are less reliable.",
+    early: "No weather station within 50 km has reported dust yet, so this is a possible new storm. Alerts like this are much less reliable than ones where dust is already reported.",
     unknown: "There's no current forecast for this stretch.",
   } as Record<RoadState, string>,
   dustWhen: (lead: number) => (lead <= 15 ? "Within 15 minutes" : `In about ${lead} minutes`),
   dustNow: "Dust reported nearby",
+  summaryBreakdown: (near: number, fresh: number) =>
+    [near ? `${near} where dust is already reported nearby` : "", fresh ? `${fresh} possible new storm${fresh > 1 ? "s" : ""}` : ""].filter(Boolean).join(", ") + ".",
+  verifyShort: (n: number) => `about 1 in ${n} verify`,
+  reliabilityNearby: (pct: number, cov: number) =>
+    `When dust is already reported nearby, ${pct}% of alerts like this were followed by dust within an hour. They caught ${cov}% of those cases.`,
+  reliabilityNew: (n: number, cov: number) =>
+    `About 1 in ${n} alerts like this was followed by dust within an hour, and they caught about ${cov}% of new storms. Check the official NWS warning too.`,
+  reliabilityNone: "Hit rates haven't been measured for the model running now.",
   roadAlerts: "Road alerts",
   backToList: "Back to all alerts",
   chanceOfDust: "Chance of dust",
@@ -76,7 +84,7 @@ const en = {
   colMileposts: "Mileposts",
   colStatus: "Status",
   colIn: (m: number) => `${m} min`,
-  roadsNote: "Chances are the highest anywhere on the stretch. An alert starts at 80%.",
+  roadsNote: "Chances are the highest anywhere on the stretch. An alert starts at 50% when dust is reported within 50 km, or 30% for a possible new storm.",
 
   // warnings tab
   warnTitle: "National Weather Service warnings",
@@ -132,15 +140,19 @@ const en = {
   how: [
     "Every 10 minutes we collect the last half hour of GOES weather satellite images, lightning data, the HRRR weather model, and reports from airport weather stations.",
     "A neural network turns these into a map of the chance of dust in 15, 30 and 60 minutes, on a grid of about 4 km squares.",
-    "A stretch of road gets an alert when the chance anywhere on it reaches 80%. Alerts stay on for at least 30 minutes and end when the chance falls below 50%.",
+    "A stretch of road gets an alert when the chance anywhere on it reaches 50% and a weather station within 50 km is already reporting dust, or 30% when none is (a possible new storm). Alerts stay on for at least 30 minutes and end when the chance falls below 50%.",
   ],
   accTitle: "How accurate it is",
-  acc: "We tested the forecast on dust events from 2025 that it never saw in training. Its critical success index (hits divided by hits, misses and false alarms) was 0.49 at 15 minutes, 0.39 at 30 minutes and 0.27 at 60 minutes. Simply assuming that dust where it's reported now will stay there scores 0.44, 0.35 and 0.19.",
+  acc: [
+    "The forecast was tested once on every 2026 dust event (37 events), after all tuning was finished. Its critical success index (hits divided by hits, misses and false alarms) was 0.17 at 15 minutes, 0.15 at 30 minutes and 0.10 at 60 minutes. Simply assuming that dust where it's reported now stays put scores 0.19, 0.10 and 0.05.",
+    "So it does better than that simple rule 30 and 60 minutes ahead, because it can flag storms that haven't started yet, which the simple rule never can. For dust that is already blowing it is no better: over all of 2025 the simple rule was slightly ahead.",
+    "How often alerts came true (2025 events, not used in training): when dust was already reported within 50 km, about 4 in 5 alerts were followed by dust within an hour. For possible new storms, about 1 in 7 were, and those alerts caught about a quarter of new storms.",
+  ],
   limitsTitle: "Limits",
   limits: [
-    "It is much better at dust that is already blowing somewhere than at storms that haven't started yet. Those show as \"Developing\".",
+    "Most alerts for storms that haven't started yet don't come true. Those show as \"Dust possible\".",
     "The road is drawn as straight lines between exits, so positions can be off by a few kilometres.",
-    "It has not yet been tested on 2026 storms. That test runs once, at the end of the project.",
+    "On 2026 storms the stated chances ran too high, so read the percentages as which stretches are most at risk, not as exact odds.",
   ],
   sourcesTitle: "Data sources",
   sources: [
@@ -194,17 +206,25 @@ const es: Copy = {
   legendChance: "Probabilidad de polvo",
   low: "Baja",
   high: "Alta",
-  state: { clear: "Despejado", watch: "Vigilancia", severe: "Grave", held: "Bajando", early: "En formación", unknown: "Sin datos" },
+  state: { clear: "Despejado", watch: "Vigilancia", severe: "Grave", held: "Bajando", early: "Polvo posible", unknown: "Sin datos" },
   stateHelp: {
     clear: "No se espera nada en este tramo en la próxima hora.",
     watch: "Es probable que haya polvo. Baje la velocidad y vigile la visibilidad.",
     severe: "Es probable una tormenta de polvo. Evite este tramo si puede, o esté listo para salir del camino.",
     held: "La probabilidad está bajando. Las alertas duran al menos 30 minutos para que no se enciendan y apaguen.",
-    early: "El pronóstico muestra polvo, pero ninguna estación cercana lo ha reportado todavía. Estos pronósticos tempranos son menos confiables.",
+    early: "Ninguna estación a menos de 50 km ha reportado polvo todavía, así que es una posible tormenta nueva. Estas alertas son mucho menos confiables que cuando ya se reporta polvo.",
     unknown: "No hay un pronóstico actual para este tramo.",
   },
   dustWhen: (lead) => (lead <= 15 ? "En menos de 15 minutos" : `En unos ${lead} minutos`),
   dustNow: "Se reporta polvo cerca",
+  summaryBreakdown: (near, fresh) =>
+    [near ? `${near} con polvo ya reportado cerca` : "", fresh ? `${fresh} posible${fresh > 1 ? "s" : ""} tormenta${fresh > 1 ? "s" : ""} nueva${fresh > 1 ? "s" : ""}` : ""].filter(Boolean).join(", ") + ".",
+  verifyShort: (n) => `se cumple 1 de cada ${n}`,
+  reliabilityNearby: (pct, cov) =>
+    `Cuando ya se reporta polvo cerca, el ${pct} % de estas alertas fue seguido de polvo en menos de una hora. Detectaron el ${cov} % de esos casos.`,
+  reliabilityNew: (n, cov) =>
+    `Alrededor de 1 de cada ${n} alertas como esta fue seguida de polvo en menos de una hora, y detectaron cerca del ${cov} % de las tormentas nuevas. Revise también la alerta oficial del NWS.`,
+  reliabilityNone: "No se han medido las tasas de acierto del modelo que funciona ahora.",
   roadAlerts: "Alertas en la carretera",
   backToList: "Volver a todas las alertas",
   chanceOfDust: "Probabilidad de polvo",
@@ -242,7 +262,7 @@ const es: Copy = {
   colMileposts: "Millas",
   colStatus: "Estado",
   colIn: (m) => `${m} min`,
-  roadsNote: "Las probabilidades son las más altas en cualquier punto del tramo. Una alerta empieza en 80 %.",
+  roadsNote: "Las probabilidades son las más altas en cualquier punto del tramo. Una alerta empieza en 50 % cuando se reporta polvo a menos de 50 km, o en 30 % para una posible tormenta nueva.",
 
   warnTitle: "Alertas del Servicio Meteorológico Nacional",
   warnIntro: "Alertas oficiales de polvo para Arizona, Nuevo México y la zona de El Paso. Siempre aplican, diga lo que diga nuestro pronóstico.",
@@ -295,15 +315,19 @@ const es: Copy = {
   how: [
     "Cada 10 minutos reunimos la última media hora de imágenes del satélite GOES, datos de rayos, el modelo meteorológico HRRR y los reportes de las estaciones de los aeropuertos.",
     "Una red neuronal convierte estos datos en un mapa de la probabilidad de polvo en 15, 30 y 60 minutos, en cuadros de unos 4 km.",
-    "Un tramo recibe una alerta cuando la probabilidad en cualquier punto llega a 80 %. Las alertas duran al menos 30 minutos y terminan cuando la probabilidad baja de 50 %.",
+    "Un tramo recibe una alerta cuando la probabilidad en cualquier punto llega a 50 % y una estación a menos de 50 km ya reporta polvo, o a 30 % cuando ninguna lo reporta (posible tormenta nueva). Las alertas duran al menos 30 minutos y terminan cuando la probabilidad baja de 50 %.",
   ],
   accTitle: "Qué tan preciso es",
-  acc: "Probamos el pronóstico con eventos de polvo de 2025 que no vio durante el entrenamiento. Su índice de éxito crítico (aciertos entre aciertos, fallas y falsas alarmas) fue 0.49 a 15 minutos, 0.39 a 30 minutos y 0.27 a 60 minutos. Suponer simplemente que el polvo reportado ahora seguirá ahí da 0.44, 0.35 y 0.19.",
+  acc: [
+    "El pronóstico se probó una sola vez con todos los eventos de polvo de 2026 (37 eventos), después de terminar todos los ajustes. Su índice de éxito crítico (aciertos entre aciertos, fallas y falsas alarmas) fue 0.17 a 15 minutos, 0.15 a 30 minutos y 0.10 a 60 minutos. Suponer simplemente que el polvo reportado ahora se queda donde está da 0.19, 0.10 y 0.05.",
+    "Es decir, supera esa regla simple a 30 y 60 minutos porque puede señalar tormentas que aún no empiezan, algo que la regla simple nunca hace. Con polvo que ya está soplando no es mejor: en todo 2025 la regla simple quedó un poco adelante.",
+    "Con qué frecuencia se cumplieron las alertas (eventos de 2025 no usados en el entrenamiento): cuando ya se reportaba polvo a menos de 50 km, unas 4 de cada 5 alertas fueron seguidas de polvo en menos de una hora. Para posibles tormentas nuevas, 1 de cada 7, y esas alertas detectaron cerca de una cuarta parte de las tormentas nuevas.",
+  ],
   limitsTitle: "Limitaciones",
   limits: [
-    "Funciona mucho mejor con polvo que ya está soplando en algún lugar que con tormentas que aún no empiezan. Esas aparecen como \"En formación\".",
+    "La mayoría de las alertas por tormentas que aún no empiezan no se cumplen. Esas aparecen como \"Polvo posible\".",
     "La carretera se dibuja con líneas rectas entre salidas, así que las posiciones pueden variar unos kilómetros.",
-    "Todavía no se ha probado con tormentas de 2026. Esa prueba se hace una sola vez, al final del proyecto.",
+    "Con las tormentas de 2026 las probabilidades indicadas resultaron demasiado altas, así que tome los porcentajes como una indicación de qué tramos corren más riesgo, no como probabilidades exactas.",
   ],
   sourcesTitle: "Fuentes de datos",
   sources: [

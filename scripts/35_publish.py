@@ -1,9 +1,9 @@
 """Publish forecasts for the web and phone apps: predict -> AlertTracker -> bundle -> (R2 upload) -> heartbeat.
 
-    python scripts/30_publish.py --live --once [--upload]          # one forecast for now (Task Scheduler, every 10 min)
-    python scripts/30_publish.py --live --loop [--upload]          # long-running worker, wakes at :02, :12, :22 ...
-    python scripts/30_publish.py --replay data/samples/val --event <event> [--out web/public/replay/<event>]
-    python scripts/30_publish.py --fixture                         # illustrative storm, no model or data needed
+    python scripts/35_publish.py --live --once [--upload]          # one forecast for now (Task Scheduler, every 10 min)
+    python scripts/35_publish.py --live --loop [--upload]          # long-running worker, wakes at :02, :12, :22 ...
+    python scripts/35_publish.py --replay data/samples/val --event <event> [--out web/public/replay/<event>]
+    python scripts/35_publish.py --fixture                         # illustrative storm, no model or data needed
 
 Terms: ASOS = Automated Surface Observing System; NWS = National Weather Service; R2 = Cloudflare's
 S3-compatible object store; t0 = forecast time (rounded down to 10 min).

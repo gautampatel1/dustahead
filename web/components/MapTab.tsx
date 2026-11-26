@@ -1,7 +1,7 @@
 "use client";
 /** Map tab: the map, a 15/30/60-minute switch, the road alert list, a segment's details, and station reports. */
 import dynamic from "next/dynamic";
-import { STATE_RANK, STATION_NAMES, warningsFor, type Loaded, type RoadState } from "@/lib/bundle";
+import { STATE_RANK, STATION_NAMES, alertThreshold, oneIn, warningsFor, type Alert, type Loaded, type RoadState } from "@/lib/bundle";
 import { clockShort, type Copy, type Lang } from "@/lib/i18n";
 import { ROAD_COLOR } from "./MapView";
 
@@ -102,7 +102,14 @@ export default function MapTab(p: Props) {
         ) : (
           <>
             {!stale && (
-              <p className={`summary${rows.length ? " has" : ""}`}>{rows.length ? t.summarySome(rows.length) : t.summaryNone}</p>
+              <div className={`summary${rows.length ? " has" : ""}`}>
+                <p>{rows.length ? t.summarySome(rows.length) : t.summaryNone}</p>
+                {rows.length > 0 && b.policy.tiers && (
+                  <p className="summary-sub">
+                    {t.summaryBreakdown(rows.filter((r) => r.state !== "early").length, rows.filter((r) => r.state === "early").length)}
+                  </p>
+                )}
+              </div>
             )}
             {rows.length > 0 && (
               <>
@@ -116,7 +123,7 @@ export default function MapTab(p: Props) {
                           <Badge state={r.state} t={t} />
                         </span>
                         <span className="al-sub">
-                          {r.state === "unknown" ? t.state.unknown : `${t.dustWhen(r.alert.lead_min)} · ${Math.round(r.alert.p_max * 100)}%`}
+                          {r.state === "unknown" ? t.state.unknown : `${t.dustWhen(r.alert.lead_min)} · ${listDetail(r.alert, r.state, t)}`}
                         </span>
                       </button>
                     </li>
@@ -147,10 +154,11 @@ function SegmentDetails({ seg, state, alert, cur, t, onBack }: {
       </div>
       <p className="details-help">{t.stateHelp[state]}</p>
       {alert && state !== "unknown" && <p className="details-when">{t.dustWhen(alert.lead_min)}</p>}
+      {alert && state !== "unknown" && <Reliability alert={alert} cur={cur} t={t} />}
       <table className="chance-table">
         <caption>{t.chanceOfDust}</caption>
         <thead><tr>{b.leads.map((m) => <th key={m} scope="col">{t.inMin(m)}</th>)}</tr></thead>
-        <tbody><tr>{seg.p.map((v, k) => <td key={k} className={v >= (b.policy.thresholds?.[k] ?? 0.8) ? "hi" : ""}>{Math.round(v * 100)}%</td>)}</tr></tbody>
+        <tbody><tr>{seg.p.map((v, k) => <td key={k} className={v >= alertThreshold(b, seg, k) ? "hi" : ""}>{Math.round(v * 100)}%</td>)}</tr></tbody>
       </table>
       <dl className="facts">
         <div><dt>{t.mileposts}</dt><dd>{seg.state} {seg.mp[0]}–{seg.mp[1]}</dd></div>
@@ -158,6 +166,25 @@ function SegmentDetails({ seg, state, alert, cur, t, onBack }: {
         <div><dt>{t.nwsWarning}</dt><dd>{b.nws === null ? t.unavailable : warn.length ? warn.map((w) => w.type).join(", ") : t.none}</dd></div>
       </dl>
     </section>
+  );
+}
+
+/** List line after the timing: a new-storm alert states how often such alerts came true, not a probability. */
+function listDetail(a: Alert, state: RoadState, t: Copy): string {
+  const n = oneIn(a.hit_rate);
+  return state === "early" && n ? t.verifyShort(n) : `${Math.round(a.p_max * 100)}%`;
+}
+
+/** How often alerts of this tier were followed by dust (2025 validation), shown only when measured for this model. */
+function Reliability({ alert, cur, t }: { alert: Alert; cur: Loaded; t: Copy }) {
+  const T = cur.bundle.policy.tiers;
+  if (!T || !alert.tier) return null;
+  if (!T.rated || alert.hit_rate == null) return <p className="details-rel muted">{t.reliabilityNone}</p>;
+  const cov = Math.round(100 * (T[alert.tier].coverage ?? 0));
+  return (
+    <p className={`details-rel ${alert.tier === "new_storm" ? "rel-low" : "rel-high"}`}>
+      {alert.tier === "nearby" ? t.reliabilityNearby(Math.round(100 * alert.hit_rate), cov) : t.reliabilityNew(oneIn(alert.hit_rate)!, cov)}
+    </p>
   );
 }
 

@@ -1,5 +1,5 @@
 /**
- * The forecast bundle written by scripts/30_publish.py (dustahead/app/bundle.py, schema 1), and the few rules the
+ * The forecast bundle written by scripts/35_publish.py (dustahead/app/bundle.py, schema 1), and the few rules the
  * app applies to it. The app never re-thresholds P: the road state comes from the worker's alert list
  * (road_alerts + AlertTracker), so the web map, the phone and the pushes always agree.
  *
@@ -31,6 +31,18 @@ export interface Alert {
   level: Level;
   genesis: boolean;
   held: boolean;
+  /** "nearby" = a station within 50 km reports dust now; "new_storm" = none does (product.tiers). null when off. */
+  tier?: Tier | null;
+  /** Share of past alerts in this tier followed by dust within 60 min; null when not measured for this model. */
+  hit_rate?: number | null;
+}
+
+export type Tier = "nearby" | "new_storm";
+
+export interface TierPolicy {
+  thresholds: number[];
+  hit_rate: number | null;
+  coverage: number | null;
 }
 
 export interface Station {
@@ -65,6 +77,7 @@ export interface Bundle {
     min_hold_min: number;
     stale_after_min: number;
     genesis_km: number;
+    tiers?: { rated: boolean; nearby: TierPolicy; new_storm: TierPolicy } | null;
   };
   segments: Segment[];
   alerts: Alert[];
@@ -122,11 +135,24 @@ export function roadState(a: Alert | undefined, stale: boolean): RoadState {
   if (stale) return "unknown";
   if (!a) return "clear";
   if (a.held) return "held";
-  if (a.genesis) return "early";
+  if (a.tier === "new_storm" || a.genesis) return "early";
   return a.level;
 }
 
 export const STATE_RANK: Record<RoadState, number> = { severe: 0, watch: 1, early: 2, held: 3, unknown: 4, clear: 5 };
+
+/** The alert threshold for one segment and lead: the tier's when tiers are on (new-storm tier when no station
+ *  within 50 km reports dust), else the per-lead product threshold. Used only to highlight numbers. */
+export function alertThreshold(b: Bundle, seg: Segment, k: number): number {
+  const T = b.policy.tiers;
+  if (T) return (seg.genesis ? T.new_storm : T.nearby).thresholds[k] ?? 0.5;
+  return b.policy.thresholds?.[k] ?? 0.8;
+}
+
+/** "About 1 in 7": the hit rate as a whole-number ratio, or null when not measured. */
+export function oneIn(rate: number | null | undefined): number | null {
+  return rate ? Math.max(1, Math.round(1 / rate)) : null;
+}
 
 /** P at an arbitrary look-ahead, linear between the published leads (the map blends the same way). */
 export function pAt(seg: Segment, leads: number[], minute: number): number {

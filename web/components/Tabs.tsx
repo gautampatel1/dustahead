@@ -1,7 +1,7 @@
 "use client";
 /** The other tabs: road conditions (route check + full table), NWS warnings, safety advice, about + forecast status. */
 import { useMemo, useState } from "react";
-import type { Bundle, NwsProduct, RoadState } from "@/lib/bundle";
+import { alertThreshold, type Bundle, type NwsProduct, type RoadState } from "@/lib/bundle";
 import { clockShort, dateLong, type Copy, type Lang } from "@/lib/i18n";
 import { Badge, StateLine } from "./MapTab";
 
@@ -73,7 +73,7 @@ export function RoadsTab({ b, states, stale, t, onOpen }: {
                   <td><button type="button" className="link-btn" onClick={() => onOpen(s.id)}>{s.name}</button></td>
                   <td className="muted">{s.state} {s.mp[0]}–{s.mp[1]}</td>
                   <td><Badge state={states[s.id]} t={t} /></td>
-                  {s.p.map((v, k) => <td key={k} className={`num${v >= (b.policy.thresholds?.[k] ?? 0.8) ? " hi" : ""}`}>{stale ? "–" : `${Math.round(v * 100)}%`}</td>)}
+                  {s.p.map((v, k) => <td key={k} className={`num${v >= alertThreshold(b, s, k) ? " hi" : ""}`}>{stale ? "–" : `${Math.round(v * 100)}%`}</td>)}
                 </tr>
               ))}
             </tbody>
@@ -163,7 +163,7 @@ export function AboutTab({ b, stale, age, t, lang, tz }: { b?: Bundle; stale: bo
         </section>
         <section className="card">
           <h2>{t.accTitle}</h2>
-          <p>{t.acc}</p>
+          {t.acc.map((para) => <p key={para}>{para}</p>)}
           <h3>{t.limitsTitle}</h3>
           <ul className="steps">{t.limits.map((s) => <li key={s}>{s}</li>)}</ul>
         </section>

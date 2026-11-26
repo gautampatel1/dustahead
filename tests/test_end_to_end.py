@@ -46,11 +46,11 @@ def test_end_to_end(tmp_path):
     assert np.allclose(out2["probs"], out["probs"]) and len(out2["members"]) == 1 and out2["genesis"].shape == (64, 80)
     assert all({"segment", "lead_min", "p_max", "genesis", "level"} <= set(a) for a in out2["alerts"])
 
-    # publish (scripts/30_publish.py --replay): one event through the model + AlertTracker into app bundles
+    # publish (scripts/35_publish.py --replay): one event through the model + AlertTracker into app bundles
     import importlib.util
     import json
     import types
-    spec = importlib.util.spec_from_file_location("publish", Path(__file__).resolve().parents[1] / "scripts" / "30_publish.py")
+    spec = importlib.util.spec_from_file_location("publish", Path(__file__).resolve().parents[1] / "scripts" / "35_publish.py")
     pub = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(pub)
     test_dir = tmp_path / "samples" / "test"
