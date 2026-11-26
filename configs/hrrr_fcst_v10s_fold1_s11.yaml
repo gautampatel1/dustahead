@@ -1,0 +1,9 @@
+# v11f recipe on fold 1, seed 11: second and third members of the fold-1 seed ensemble (19 Nov).
+channels:
+  hrrr_fcst: 6
+model:
+  gate_channels: [static, physics]
+splits:
+  val_fold: 1
+train:
+  seed: 11

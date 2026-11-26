@@ -1,0 +1,16 @@
+# Experiment config (v15c, stage 2): dust training warm-started from the wind-only model (wind_pre_v15c.yaml), with the
+# wind term kept so the outflow features are not overwritten. Lower learning rate, as in the other warm starts (v10).
+channels:
+  hrrr_fcst: 6
+  wind: 4
+model:
+  gate_channels: [static, physics]
+loss:
+  w_wind: 1.0
+  wind_kt: 30.0
+  wind_pos_weight: 3.0
+train:
+  init_from: runs/wind_pre_v15c/best.pt
+  lr: 0.0003
+  epochs: 20
+  patience: 6

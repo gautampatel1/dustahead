@@ -61,11 +61,36 @@ class DustLoss(torch.nn.Module):
         self.wf, self.ws, self.wst = L["w_focal"], L["w_fss"], L["w_station"]
         self.pos_w = L.get("station_pos_weight", 1.0)
         self.gen_w = L.get("station_genesis_weight", 0.0)
+        # auxiliary dense head (model.unet.last_aux): focal + FSS against the same painted targets but with EVERY
+        # labelled pixel at full weight (ADP satellite pixels included, w > 0), no station term.
+        self.w_aux = float(L.get("w_aux", 0.0))
+        # wind head (model.unet.last_wind): station BCE against "peak wind >= loss.wind_kt at t0 + lead" (batch st_wy)
+        self.w_wind = float(L.get("w_wind", 0.0))
+        self.wind_pos_w = float(L.get("wind_pos_weight", 3.0))
 
-    def forward(self, p, batch):
+        # blowing-dust head (model.unet.last_tier_p): station BCE against "dust code and visibility <= tier_vis_mi"
+        self.w_tier = float(L.get("w_tier", 0.0))
+        self.tier_pos_w = float(L.get("tier_pos_weight", 5.0))
+
+    def forward(self, p, batch, aux_logits=None, wind_logits=None, tier_p=None):
         y, w = batch["y"], batch["w"]
         lf = focal_loss(p, y, w, self.a, self.g)
         ls = 1 - fss(p, y, w, self.n)
         lst = station_bce(p, batch["st_ij"], batch["st_y"], self.pos_w, batch.get("st_gen"), self.gen_w)
         total = self.wf * lf + self.ws * ls + self.wst * lst
-        return total, dict(focal=lf.item(), fss=ls.item(), station=lst.item())
+        parts = dict(focal=lf.item(), fss=ls.item(), station=lst.item())
+        if self.w_aux and aux_logits is not None:
+            pa = torch.sigmoid(aux_logits.float())
+            wa = (w > 0).float()
+            la = focal_loss(pa, y, wa, self.a, self.g) + (1 - fss(pa, y, wa, self.n))
+            total = total + self.w_aux * la
+            parts["aux"] = la.item()
+        if self.w_wind and wind_logits is not None and "st_wy" in batch:
+            lw = station_bce(torch.sigmoid(wind_logits.float()), batch["st_ij"], batch["st_wy"], self.wind_pos_w)
+            total = total + self.w_wind * lw
+            parts["wind"] = lw.item()
+        if self.w_tier and tier_p is not None and "st_ty" in batch:
+            lt = station_bce(tier_p.float(), batch["st_ij"], batch["st_ty"], self.tier_pos_w)
+            total = total + self.w_tier * lt
+            parts["tier"] = lt.item()
+        return total, parts

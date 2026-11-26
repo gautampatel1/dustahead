@@ -1,0 +1,8 @@
+# Experiment config (v14a): the auxiliary satellite-mask head ALONE on the v11f recipe (no radar), to separate the
+# two effects of v14.
+channels:
+  hrrr_fcst: 6
+model:
+  gate_channels: [static, physics]
+loss:
+  w_aux: 1.0

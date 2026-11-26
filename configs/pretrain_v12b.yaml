@@ -1,0 +1,8 @@
+model:
+  gate_channels: [static, physics]
+train:
+  init_unet_from: runs/pretrain_mae_v1/unet.pt
+  lr: 0.0001
+  ema_decay: 0.999
+  epochs: 20
+  patience: 6

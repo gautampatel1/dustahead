@@ -91,3 +91,116 @@ def test_warm_start_with_forecast_channels_reproduces_base_model():
     x = torch.randn(2, N_CH_IN_FCST, 32, 32)
     with torch.no_grad():
         assert torch.allclose(base(x[:, :N_CH_IN]), wide(x), atol=1e-6)
+
+
+def test_pretrain_and_transfer(tmp_path):
+    """Masked-reconstruction pre-training runs on synthetic data and its U-Net weights load into the gated model."""
+    import copy
+    from dustahead import load_config
+    from dustahead.data.synthetic import make_synthetic_dataset
+    from dustahead.grid import Grid
+    from dustahead.models import build_model
+    from dustahead.train.pretrain import pretrain, load_pretrained_unet
+    cfg = copy.deepcopy(load_config())
+    cfg["paths"].update(samples=str(tmp_path / "samples"), runs=str(tmp_path / "runs"))
+    cfg["train"].update(batch_size=2, num_workers=0, crop=[48, 64], amp=False)
+    cfg["model"].update(base_channels=8, depth=2, gate_channels=["static", "physics"])
+    make_synthetic_dataset(cfg["paths"]["samples"], Grid.from_config(cfg), n=8, small=True)
+    out = pretrain(cfg, tmp_path / "pre", epochs=1, patch=8, ratio=0.5, device="cpu")
+    ck = torch.load(out / "unet.pt", weights_only=False)
+    assert not any(k.startswith("head.") for k in ck["unet"]) and ck["masked_mse"] > 0
+    m = build_model(cfg, "gated_unet")
+    before = m.unet.enc[0].net[0].weight.clone()
+    n = load_pretrained_unet(m, out / "unet.pt")
+    assert n > 10 and not torch.equal(before, m.unet.enc[0].net[0].weight)
+
+
+def test_radar_block_and_aux_head():
+    """channels.radar adds three sky-branch inputs at the fixed radar slot; loss.w_aux adds a dense auxiliary head
+    whose logits reach the loss; a checkpoint without either is still a channel prefix for a warm start."""
+    import copy
+    from dustahead import load_config
+    from dustahead.models import build_model
+    from dustahead.train.losses import DustLoss
+    from dustahead.data.sampler import CH, N_CH_IN_FULL, N_FCST, N_RADAR
+    assert CH["radar"].stop == N_CH_IN_FULL and CH["radar"].start == CH["hrrr_fcst"].stop
+    cfg = copy.deepcopy(load_config())
+    cfg["model"].update(base_channels=8, depth=2, gate_channels=["static", "physics"])
+    cfg["channels"].update(hrrr_fcst=6, radar=3); cfg["loss"]["w_aux"] = 1.0
+    m = build_model(cfg, "gated_unet")
+    assert int(m.dyn_idx.max()) == N_CH_IN_FULL - 1 and m.unet.aux_head is not None
+    x = torch.randn(2, N_CH_IN_FULL, 32, 32)
+    p = m(x)
+    assert m.unet.last_aux.shape == p.shape
+    batch = dict(y=torch.zeros(2, 3, 32, 32), w=torch.ones(2, 3, 32, 32), st_ij=torch.zeros(2, 4, 2, dtype=torch.long),
+                 st_y=torch.zeros(2, 4, 3, dtype=torch.long))
+    total, parts = DustLoss(cfg)(p, batch, m.unet.last_aux)
+    assert "aux" in parts and torch.isfinite(total)
+    # radar without the forecast block still sits at the same slot (forecast slot filled with zeros by input_stack)
+    cfg2 = copy.deepcopy(cfg); cfg2["channels"]["hrrr_fcst"] = 0; cfg2["loss"]["w_aux"] = 0
+    m2 = build_model(cfg2, "gated_unet")
+    assert int(m2.dyn_idx.max()) == N_CH_IN_FULL - 1 and m2.unet.aux_head is None and (N_CH_IN_FULL - 63) == N_FCST + N_RADAR
+
+
+def test_wind_block_and_wind_head():
+    """channels.wind paints the station wind at a fixed slot after the radar block; loss.w_wind adds a wind head on
+    the sky branch trained on 'peak wind >= wind_kt at t0 + lead' at the stations."""
+    import copy
+    import numpy as np
+    from dustahead import load_config
+    from dustahead.data.sampler import CH, N_CH_IN_WIND, N_WIND, input_stack, paint_station_wind
+    from dustahead.models.gated_unet import build_model
+    from dustahead.train.losses import DustLoss
+    cfg = copy.deepcopy(load_config())
+    cfg["model"].update(base_channels=8, depth=2, gate_channels=["static", "physics"])
+    cfg["channels"].update(hrrr_fcst=6, wind=4); cfg["loss"].update(w_wind=1.0)
+    m = build_model(cfg, "gated_unet")
+    assert int(m.dyn_idx.max()) == N_CH_IN_WIND - 1 and m.unet.wind_head is not None
+    B, H, W = 2, 32, 48
+    p = m(torch.rand(B, N_CH_IN_WIND, H, W))
+    assert m.unet.last_wind.shape == p.shape
+    batch = dict(y=torch.zeros(B, 3, H, W), w=torch.ones(B, 3, H, W), st_ij=torch.randint(0, 32, (B, 5, 2)),
+                 st_y=torch.zeros(B, 5, 3, dtype=torch.long), st_wy=torch.tensor([1, 0, -1]).expand(B, 5, 3))
+    total, parts = DustLoss(cfg)(p, batch, None, m.unet.last_wind)
+    assert "wind" in parts and torch.isfinite(total)
+    # painting: strongest station wins on overlap, NaN stations leave no trace, mask channel marks reports
+    ij = np.array([[10, 10], [10, 11], [25, 40]])
+    wn = np.array([[20.0, 5.0, -2.0], [40.0, 15.0, -8.0], [np.nan, np.nan, np.nan]], np.float32)
+    blk = paint_station_wind(ij, wn, (H, W))
+    assert blk.shape == (N_WIND, H, W) and blk[0, 10, 10] == 1.0 and blk[3, 10, 10] == 1.0 and blk[3, 25, 40] == 0.0
+    s = dict(x=np.zeros((62, H, W), np.float16), st_ij=ij, st_now=np.zeros(3, np.int8), st_wnow=wn)
+    x = input_stack(s, None, True, False, 0, "xr", True)
+    assert x.shape[0] == N_CH_IN_WIND and x[CH["wind"]][0, 10, 10] == 1.0 and not x[CH["radar"]].any()
+
+
+def test_dust_now_block_slot_and_painting():
+    """channels.dust_now sits after the wind slot (zeros when wind is off); worst station report wins."""
+    import numpy as np
+    from dustahead.data.sampler import CH, N_CH_IN_DNOW, input_stack, paint_station_dust_now
+    H, W = 32, 48
+    ij = np.array([[10, 10], [10, 11], [25, 40], [5, 5]])
+    blk = paint_station_dust_now(ij, np.array([99.0, 3.0, np.nan, 0.0], np.float32), (H, W))
+    assert blk[0, 10, 10] == 0.5 and blk[1, 10, 10] == 1 and blk[1, 25, 40] == 0 and blk[0, 5, 5] == 1
+    s = dict(x=np.zeros((62, H, W), np.float16), st_ij=ij, st_now=np.zeros(4, np.int8), st_dvis_now=np.array([99.0, 3.0, np.nan, 0.0], np.float32))
+    x = input_stack(s, None, True, False, 0, "xr", False, None, True)
+    assert x.shape[0] == N_CH_IN_DNOW and x[CH["dust_now"]][0, 10, 10] == 0.5 and not x[CH["wind"]].any()
+
+
+def test_hotspot_block_goes_to_the_gate():
+    """channels.hotspot: two climatology channels at a fixed slot after every other block, seen by the gate only."""
+    import copy
+    import numpy as np
+    from dustahead import load_config
+    from dustahead.data.sampler import CH, N_CH_IN_HOT, input_stack
+    from dustahead.models.gated_unet import build_model
+    cfg = copy.deepcopy(load_config())
+    cfg["model"].update(base_channels=8, depth=2, gate_channels=["static", "physics"])
+    cfg["channels"].update(hrrr_fcst=6, hotspot=2)
+    m = build_model(cfg, "gated_unet")
+    hot = set(range(CH["hotspot"].start, CH["hotspot"].stop))
+    assert hot <= set(m.gnd_idx.tolist()) and not hot & set(m.dyn_idx.tolist())
+    H, W = 32, 48
+    s = dict(x=np.zeros((62, H, W), np.float16), st_ij=np.array([[5, 5]]), st_now=np.zeros(1, np.int8))
+    x = input_stack(s, None, True, hotspot=np.ones((2, H, W), np.float32))
+    assert x.shape[0] == N_CH_IN_HOT and x[CH["hotspot"]].min() == 1 and not x[CH["wind"]].any() and not x[CH["dust_now"]].any()
+    assert m(torch.from_numpy(x)[None]).shape == (1, 3, H, W)

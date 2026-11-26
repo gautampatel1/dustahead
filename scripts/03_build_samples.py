@@ -130,6 +130,8 @@ def main():
     ap.add_argument("--max-samples", type=int, default=None, help="per event, for quick tests")
     ap.add_argument("--null-ratio", type=float, default=1.0, help="null days per dust event (per year), sampled with seed 0")
     ap.add_argument("--config", default=None)
+    ap.add_argument("--events-file", default=None,
+                    help="event list to build instead of data/labels/events.csv (e.g. events_station.csv from step 33)")
     ap.add_argument("--onset-step", type=int, default=None,
                     help="also build samples every N min through the onset window (sampler.onset_times); TRAINING events only")
     a = ap.parse_args()
@@ -137,7 +139,7 @@ def main():
     cfg = load_config(a.config)
     grid = Grid.from_config(cfg)
     L = Path(cfg["paths"]["labels"])
-    events = pd.read_csv(L / "events.csv", parse_dates=["t_start", "t_end"])
+    events = pd.read_csv(a.events_file or (L / "events.csv"), parse_dates=["t_start", "t_end"])
     warnings = pd.read_csv(L / "warnings.csv", parse_dates=["issue", "expire"])
     if a.event:
         events = events[events.event_id == a.event]

@@ -1,0 +1,205 @@
+{
+ "radius_cells": 3,
+ "window_min": 30,
+ "pm10": {
+  "n_pairs": 117950,
+  "n_asos_dust": 101,
+  "sweep": [
+   {
+    "threshold": 100.0,
+    "hits": 57,
+    "false_alarms": 4711,
+    "misses": 44,
+    "csi": 0.011845386533665835,
+    "pod": 0.5643564356435643,
+    "far": 0.9880453020134228
+   },
+   {
+    "threshold": 150.0,
+    "hits": 55,
+    "false_alarms": 2713,
+    "misses": 46,
+    "csi": 0.01954513148542999,
+    "pod": 0.5445544554455446,
+    "far": 0.9801300578034682
+   },
+   {
+    "threshold": 200.0,
+    "hits": 50,
+    "false_alarms": 1832,
+    "misses": 51,
+    "csi": 0.02586652871184687,
+    "pod": 0.49504950495049505,
+    "far": 0.973432518597237
+   },
+   {
+    "threshold": 250.0,
+    "hits": 46,
+    "false_alarms": 1344,
+    "misses": 55,
+    "csi": 0.03183391003460208,
+    "pod": 0.45544554455445546,
+    "far": 0.9669064748201439
+   },
+   {
+    "threshold": 300.0,
+    "hits": 41,
+    "false_alarms": 1043,
+    "misses": 60,
+    "csi": 0.03583916083916084,
+    "pod": 0.40594059405940597,
+    "far": 0.9621771217712177
+   },
+   {
+    "threshold": 400.0,
+    "hits": 34,
+    "false_alarms": 712,
+    "misses": 67,
+    "csi": 0.041820418204182044,
+    "pod": 0.33663366336633666,
+    "far": 0.9544235924932976
+   },
+   {
+    "threshold": 500.0,
+    "hits": 31,
+    "false_alarms": 520,
+    "misses": 70,
+    "csi": 0.0499194847020934,
+    "pod": 0.3069306930693069,
+    "far": 0.9437386569872959
+   },
+   {
+    "threshold": 600.0,
+    "hits": 23,
+    "false_alarms": 392,
+    "misses": 78,
+    "csi": 0.04665314401622718,
+    "pod": 0.22772277227722773,
+    "far": 0.944578313253012
+   },
+   {
+    "threshold": 750.0,
+    "hits": 16,
+    "false_alarms": 298,
+    "misses": 85,
+    "csi": 0.040100250626566414,
+    "pod": 0.15841584158415842,
+    "far": 0.9490445859872612
+   },
+   {
+    "threshold": 1000.0,
+    "hits": 14,
+    "false_alarms": 211,
+    "misses": 87,
+    "csi": 0.04487179487179487,
+    "pod": 0.13861386138613863,
+    "far": 0.9377777777777778
+   },
+   {
+    "threshold": 1250.0,
+    "hits": 13,
+    "false_alarms": 153,
+    "misses": 88,
+    "csi": 0.051181102362204724,
+    "pod": 0.12871287128712872,
+    "far": 0.9216867469879518
+   },
+   {
+    "threshold": 1500.0,
+    "hits": 9,
+    "false_alarms": 125,
+    "misses": 92,
+    "csi": 0.03982300884955752,
+    "pod": 0.0891089108910891,
+    "far": 0.9328358208955224
+   },
+   {
+    "threshold": 2000.0,
+    "hits": 4,
+    "false_alarms": 72,
+    "misses": 97,
+    "csi": 0.023121387283236993,
+    "pod": 0.039603960396039604,
+    "far": 0.9473684210526315
+   },
+   {
+    "threshold": 3000.0,
+    "hits": 2,
+    "false_alarms": 32,
+    "misses": 99,
+    "csi": 0.015037593984962405,
+    "pod": 0.019801980198019802,
+    "far": 0.9411764705882353
+   }
+  ]
+ },
+ "rwis_visibility": {
+  "n_pairs": 193431,
+  "n_asos_dust": 0,
+  "sweep": [
+   {
+    "threshold": 0.25,
+    "hits": 0,
+    "false_alarms": 432,
+    "misses": 0,
+    "csi": 0.0,
+    "pod": NaN,
+    "far": 1.0
+   },
+   {
+    "threshold": 0.5,
+    "hits": 0,
+    "false_alarms": 687,
+    "misses": 0,
+    "csi": 0.0,
+    "pod": NaN,
+    "far": 1.0
+   },
+   {
+    "threshold": 0.75,
+    "hits": 0,
+    "false_alarms": 942,
+    "misses": 0,
+    "csi": 0.0,
+    "pod": NaN,
+    "far": 1.0
+   },
+   {
+    "threshold": 1.0,
+    "hits": 0,
+    "false_alarms": 1140,
+    "misses": 0,
+    "csi": 0.0,
+    "pod": NaN,
+    "far": 1.0
+   },
+   {
+    "threshold": 1.5,
+    "hits": 0,
+    "false_alarms": 76049,
+    "misses": 0,
+    "csi": 0.0,
+    "pod": NaN,
+    "far": 1.0
+   },
+   {
+    "threshold": 2.0,
+    "hits": 0,
+    "false_alarms": 76189,
+    "misses": 0,
+    "csi": 0.0,
+    "pod": NaN,
+    "far": 1.0
+   },
+   {
+    "threshold": 3.0,
+    "hits": 0,
+    "false_alarms": 76585,
+    "misses": 0,
+    "csi": 0.0,
+    "pod": NaN,
+    "far": 1.0
+   }
+  ]
+ }
+}

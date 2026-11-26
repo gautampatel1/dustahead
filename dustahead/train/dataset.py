@@ -17,9 +17,10 @@ import pandas as pd
 import torch
 from torch.utils.data import Dataset
 
-from ..data.sampler import genesis_per_station, input_stack, load_sample, wants_forecast
+from ..data.sampler import apply_confirmed, genesis_per_station, label_variant, load_confirmed, input_stack, load_sample, radar_drop_newest, radar_key, wants_forecast, load_hotspot, wants_dust_now, wants_radar, wants_wind
 
-MAX_STATIONS = 96
+STATION_EVENT_PREFIX = "stndust_"   # event ids of station-confirmed dust days (scripts/33_station_events.py)
+MAX_STATIONS = 256      # ASOS (~85) + extended Synoptic stations (road-weather, PM10, other visibility)
 
 
 def _event_hash(event_id: str) -> float:
@@ -31,17 +32,34 @@ def split_files(root: str | Path, split: str, cfg: dict | None = None) -> tuple[
     root = Path(root)
     idx_path = root / "index.csv"
     idx = pd.read_csv(idx_path) if idx_path.exists() else None
+    variant = label_variant(cfg or {})
+    if idx is not None and variant != "station_confirmed":
+        # station-confirmed event days (no warning; scripts/33) hold dust that the strict rule labels 0: they are
+        # only usable with label.variant station_confirmed and are invisible to every other run
+        idx = idx[~idx.event.astype(str).str.startswith(STATION_EVENT_PREFIX)]
+    if idx is not None and variant == "station_confirmed" and (root / "index_confirmed.csv").exists():
+        c = pd.read_csv(root / "index_confirmed.csv")       # positives per sample under the confirmed labels
+        idx = idx.merge(c, on=["split", "file"], how="left")
+        for k in ("pos15", "pos30", "pos60"):
+            idx[k] = idx["c" + k].fillna(idx[k]).astype(int)
     frac = (cfg or {}).get("splits", {}).get("val_from_2025")
     if idx is None or not frac or split == "test":
         files = sorted((root / split).glob("*.npz"))
+        if variant != "station_confirmed":
+            files = [f for f in files if not f.name.startswith(STATION_EVENT_PREFIX)]
         rows = idx[idx.split == split].set_index("file").loc[[f.name for f in files]].reset_index() if idx is not None and files else None
         return files, rows
     idx = idx.copy()
     idx["h"] = idx.event.map(_event_hash)
     # fold 0 (default): events with hash < frac validate, the rest train. fold 1 swaps the two halves, so training
     # a second model on fold 1 gives out-of-sample predictions for EVERY 2025 event (2-fold cross-validation).
-    fold = int((cfg or {}).get("splits", {}).get("val_fold", 0))
-    in_val = (idx.h < frac) if fold == 0 else (idx.h >= frac)
+    # val_fold "none": no 2025 validation half at all - every 2025 event trains (final model on all data; it can
+    # then only be scored on the sealed test year, so its epoch count must come from a validated run: train.fixed_epochs)
+    fold = (cfg or {}).get("splits", {}).get("val_fold", 0)
+    if str(fold).lower() == "none":
+        in_val = pd.Series(False, index=idx.index)
+    else:
+        in_val = (idx.h < frac) if int(fold) == 0 else (idx.h >= frac)
     if split == "train":
         sel = idx[(idx.split == "train") | ((idx.split == "val") & ~in_val)]
     else:
@@ -54,7 +72,8 @@ class DustDataset(Dataset):
     def __init__(self, root: str | Path, split: str, crop: tuple[int, int] | None = None, seed: int = 0,
                  limit: int | None = None, cfg: dict | None = None):
         self.files, self.rows = split_files(root, split, cfg)
-        if not self.files:
+        no_val = split == "val" and str((cfg or {}).get("splits", {}).get("val_fold", 0)).lower() == "none"
+        if not self.files and not no_val:   # an empty val split is expected only with val_fold none (final models)
             raise FileNotFoundError(f"no samples for split {split} under {root}")
         if limit and len(self.files) > limit:
             if self.rows is not None:       # keep every sample with a station positive, thin the rest evenly
@@ -76,6 +95,24 @@ class DustDataset(Dataset):
         # cannot rely on the station channel alone and keeps using satellite/HRRR cues (robustness to missing reports)
         self.station_dropout = float((cfg or {}).get("train", {}).get("station_dropout", 0.0)) if split == "train" else 0.0
         self.with_forecast = wants_forecast(cfg or {})      # append the HRRR forecast block `xf` (channels.hrrr_fcst)
+        self.with_radar = wants_radar(cfg or {})            # append the radar block `xr` (channels.radar)
+        self.radar_drop = radar_drop_newest(cfg or {})      # blank the newest radar frame(s): latency test
+        self.radar_key = radar_key(cfg or {})               # which stored radar block (xr or xr_lag5)
+        self.with_wind = wants_wind(cfg or {})              # paint the station wind block (channels.wind)
+        self.with_dust_now = wants_dust_now(cfg or {})      # paint the station blowing-dust state (channels.dust_now)
+        self.confirmed = load_confirmed(cfg or {})        # None = strict labels; else the station-confirmed additions
+        self.hotspot = load_hotspot(cfg or {})              # dust hotspot climatology (channels.hotspot), loaded once
+        # wind target for the wind head: peak wind (max of sustained and gust) >= loss.wind_kt at t0 + lead
+        self.wind_kt = float((cfg or {}).get("loss", {}).get("wind_kt", 30.0))
+        # blowing-dust target: a dust weather code with visibility <= loss.tier_vis_mi (st_dvis from 22_add_dust_tiers.py)
+        self.tier_vis = float((cfg or {}).get("loss", {}).get("tier_vis_mi", 3.0))
+        # label sources the LOSS may see (label.train_sources; codes as in scripts/16_extend_labels.py: 0 asos, 1 rwis,
+        # 2 vis_other, 3 pm10). Extended stations stay in the sample for evaluation and for the station channel, but
+        # their discs get weight 0 and their station rows -1 in training when their source is not listed.
+        codes = {"asos": 0, "rwis": 1, "vis_other": 2, "pm10": 3}
+        ts = (cfg or {}).get("label", {}).get("train_sources")
+        self.train_src = None if ts is None else {codes[t] for t in ts}
+        self.radius_cells = 3
 
     def sampler_weights(self, pos_weight: float = 8.0) -> torch.Tensor | None:
         """Per-sample weights for WeightedRandomSampler: samples with any positive count pos_weight x."""
@@ -86,19 +123,50 @@ class DustDataset(Dataset):
         w = np.where(st_pos, pos_weight, np.where(pix_pos, 1.0 + 0.25 * (pos_weight - 1), 1.0))
         return torch.tensor(w, dtype=torch.double)
 
+    def confirmed_sample(self, k: int) -> dict:
+        """Sample k with the label version this dataset was configured for (label.variant)."""
+        s = load_sample(self.files[k])
+        if self.confirmed is None:
+            return s
+        f = Path(self.files[k])
+        return apply_confirmed(s, self.confirmed.get(f"{f.parent.name}/{f.name}"))
+
     def __len__(self):
         return len(self.files)
 
     def __getitem__(self, k):
-        s = load_sample(self.files[k])
+        s = self.confirmed_sample(k)
         st_now = s["st_now"].copy()
         if self.station_dropout > 0:
             st_now[self.rng.random(len(st_now)) < self.station_dropout] = -1       # -1 = no report
-        x = input_stack(s, st_now, self.with_forecast)      # x (62) + station channel (+ forecast block)
+        x = input_stack(s, st_now, self.with_forecast, self.with_radar, self.radar_drop, self.radar_key, self.with_wind, None, self.with_dust_now, self.hotspot)   # x (62) + station channel (+ forecast, radar, wind)
         y = s["y"].astype(np.float32)
         w = s["w"].astype(np.float32)
         ij = s["st_ij"].astype(np.int64)
         sy = s["st_y"].astype(np.int64)
+        if "st_wy" in s:                    # (S, L) peak wind in knots at t0 + lead, NaN = no report -> {1, 0, -1}
+            wk = s["st_wy"].astype(np.float32)
+            wy = np.where(np.isfinite(wk), (wk >= self.wind_kt).astype(np.int64), -1)
+        else:
+            wy = np.full(sy.shape, -1, np.int64)
+        if "st_dvis" in s:                  # (S, L) visibility of a dust-coded report (99 = report without dust), NaN = none
+            dv = s["st_dvis"].astype(np.float32)
+            ty = np.where(np.isfinite(dv), (dv <= self.tier_vis).astype(np.int64), -1)
+            ty = np.where(sy == 1, 1, ty)   # a strict dust label is blowing dust by definition
+        else:
+            ty = np.full(sy.shape, -1, np.int64)
+        if self.train_src is not None and "st_src" in s and (s["st_src"] != 0).any():
+            keep_st = np.isin(s["st_src"], list(self.train_src))
+            if not keep_st.all():
+                yy, xx = np.mgrid[0:y.shape[1], 0:y.shape[2]]
+                drop = np.zeros(y.shape[1:], bool)
+                hold = np.zeros(y.shape[1:], bool)
+                for (i, j), k_ in zip(ij, keep_st):
+                    m = np.hypot(yy - i, xx - j) <= self.radius_cells
+                    (hold if k_ else drop).__ior__(m)
+                cut = (drop & ~hold)[None] & (w >= 1.0)    # discs of excluded sources: unknown again (ADP 0.3 untouched)
+                w[cut] = 0.0
+                sy[~keep_st] = -1                           # their station rows leave the station loss
         gen = genesis_per_station(ij, s["st_now"])          # per-station genesis flag (no dust within 50 km at t0)
         H, W = x.shape[1:]
         if self.crop and (self.crop[0] < H or self.crop[1] < W):
@@ -118,14 +186,20 @@ class DustDataset(Dataset):
             ij = ij - np.array([i0, j0])
             keep = (ij[:, 0] >= 0) & (ij[:, 0] < ch) & (ij[:, 1] >= 0) & (ij[:, 1] < cw)
             sy = np.where(keep[:, None], sy, -1)
+            wy = np.where(keep[:, None], wy, -1)
+            ty = np.where(keep[:, None], ty, -1)
             ij = np.clip(ij, 0, [ch - 1, cw - 1])
         S = ij.shape[0]
         ij_p = np.zeros((MAX_STATIONS, 2), np.int64)
         sy_p = np.full((MAX_STATIONS, sy.shape[1]), -1, np.int64)
         gen_p = np.zeros(MAX_STATIONS, bool)
+        wy_p = np.full((MAX_STATIONS, sy.shape[1]), -1, np.int64)
+        wy_p[:S] = wy[:MAX_STATIONS]
+        ty_p = np.full((MAX_STATIONS, sy.shape[1]), -1, np.int64)
+        ty_p[:S] = ty[:MAX_STATIONS]
         ij_p[:S] = ij[:MAX_STATIONS]
         sy_p[:S] = sy[:MAX_STATIONS]
         gen_p[:S] = gen[:MAX_STATIONS]
         return dict(x=torch.from_numpy(x), y=torch.from_numpy(y), w=torch.from_numpy(w),
-                    st_ij=torch.from_numpy(ij_p), st_y=torch.from_numpy(sy_p), st_gen=torch.from_numpy(gen_p),
+                    st_ij=torch.from_numpy(ij_p), st_y=torch.from_numpy(sy_p), st_gen=torch.from_numpy(gen_p), st_wy=torch.from_numpy(wy_p), st_ty=torch.from_numpy(ty_p),
                     genesis=torch.tensor(bool(s["genesis"])), idx=k)

@@ -283,3 +283,784 @@ Decisions: paper model stays v8 (same onset skill, simpler input set, interpreta
 "forecast inputs" ablation (+0.02 CSI at +30, no onset gain). The product ensemble with v10s instead of v8 is
 +0.01 at +30/+60 on validation — within noise; `product.checkpoints` unchanged unless the team prefers the
 forecast-aware member for the live demo (it needs the HRRR forecast fetch at run time, ~10 s extra per cycle).
+
+## 2–3 Nov — v11: onset-window densification (5-minute sampling; `03_build_samples.py --onset-step 5`)
+
+Every TRAINING dust event (2018–24 and the 2025 training half; never the validation half, never 2026) got extra
+samples every 5 min from 3 h before its first warning to 1 h after it — the window where genesis positives live.
+GOES scans every 5 min, so the in-between frames are new observations; labels come from the 5-min station
+reports. +5,008 samples (+23 %), +229 / 226 / 297 positive station labels at +15 / +30 / +60 (+20 %), each with the
+HRRR forecast block. Validation is the same 60 events / 202k station-times as every table above.
+
+| model | best epoch | +15 | +30 | +60 | genesis CSI at 0.5, calibrated (raw) | genesis POD raw | p vs persist. +30 (Holm) |
+|---|---|---|---|---|---|---|---|
+| gated_unet v8 (10-min data) | 1 | 0.508 | 0.383 | 0.210 | 0.056 / 0.076 / 0.096 (0.050 / 0.060 / 0.093) | 0.30 / 0.35 / 0.42 | 0.014 (0.056) |
+| gated_unet v11 = v8 recipe, densified | **13** | 0.493 | 0.388 | 0.209 | 0.049 / 0.067 / **0.107 [0.04, 0.17]** (0.054 / 0.067 / 0.094) | 0.21 / 0.28 / 0.42 | 0.014 (0.056) |
+| gated_unet v11f = + HRRR forecast channels | 3 | 0.483 | 0.337 | 0.222 | **0.075 / 0.077 / 0.099** (0.059 / 0.063 / 0.081) | **0.30 / 0.51 / 0.62** | **0.006 (0.024)** |
+
+Ensembles (calibrated members, best overall threshold): max(unet_all v4, gated v4, v11) 0.490 / 0.390 / 0.235;
+with v11f 0.495 / 0.398 / 0.247 — level with the product's 0.513 / 0.399 / 0.246.
+
+Reading.
+- **The training curve changed.** Every version before v11 peaked at epoch 1–2 and overfit from there; v11 kept
+  improving until epoch 13 and stopped at 21. The models were starved of onset examples — a 20 % increase in
+  positives bought twelve useful epochs. That is the clearest evidence so far about what limits this problem.
+- **Onset skill moved, all-station skill did not.** v11's calibrated onset CSI at +60 (0.107) is the best single-model
+  value posted; v11f, which adds the forecast channels, is the first single-fold model with a Holm-corrected
+  p below 0.05 (0.024) and detects 62 % of +60 onsets (v8: 42 %) at the same false-alarm ratio. All-station CSI
+  stays within ±0.02 of v8 at every lead, because the extra samples are all pre-onset and add nothing to the
+  persistence-type cases that dominate that score.
+- **Compounding is partial.** v11f's gains over v11 are at the onset stratum only; its +30 all-station CSI drops to
+  0.337, and it again peaks early (epoch 3). More onset examples and more input information help the same cases.
+
+Decisions: product unchanged (no ensemble beats it). Paper: v8 remains the clean reference; v11 / v11f go in as the
+"data-limited" evidence (training-curve figure + the POD gain). Next data levers, in order: road-weather (RWIS) and
+PM10 ground truth through Synoptic Data (needs an API token), then self-supervised pre-training of the sky branch.
+
+## 3 Nov — v12: self-supervised pre-training of the sky branch (`scripts/15_pretrain.py`, `configs/pretrain_v12.yaml`)
+
+The U-Net was first trained with no labels to reconstruct randomly hidden 16 × 16-cell patches (50 % of each
+crop) of its own 56-channel input on the 21,742 training samples: masked MSE 0.136 → 0.098 over 15 epochs
+(`pretrain_mae_v1_log.json`). v12 then trains the v8 recipe from those weights (head and gate new, lr 5e-4).
+
+| model | best epoch | +15 | +30 | +60 | genesis CSI at 0.5 (raw) | genesis POD | Brier +30 | p vs persist. (Holm) |
+|---|---|---|---|---|---|---|---|---|
+| gated_unet v8 | 1 | 0.508 | 0.383 | 0.210 | 0.050 / 0.060 / 0.093 | 0.30 / 0.35 / 0.42 | 0.0027 | 0.014 (0.056) |
+| gated_unet v11 (densified) | 13 | 0.493 | 0.388 | 0.209 | 0.054 / 0.067 / 0.094 | 0.21 / 0.28 / 0.42 | 0.0020 | 0.014 (0.056) |
+| gated_unet v12 (pre-trained, densified) | 9 | 0.497 | 0.388 | 0.201 | **0.024 / 0.007 / 0.049** | **0.04 / 0.01 / 0.09** | **0.0012** | 0.70 (1.0) |
+
+**Negative for onset.** All-station skill and calibration are as good as any model (the lowest Brier score so far),
+but onset detection collapsed: 1 % of +30 onsets caught. The training loss fell to 0.20 (v8 stopped at 1.0), i.e.
+the pre-trained features let the network memorise the training set within ten epochs, and what it memorised is
+the persistence-type signal, which dominates the loss. Reconstruction pre-training rewards low-level texture, not
+the rare precursor patterns. Follow-up queued as v12b (lr 1e-4, EMA 0.999) to test whether a gentler fine-tune keeps
+the onset sensitivity; if that is also negative, pre-training is closed in this form (a contrastive or
+future-frame objective would be the next thing to try, not more of the same).
+
+v12b (same pre-trained U-Net, lr 1e-4 + EMA, best epoch 9): 0.385 / 0.304 / 0.184, onset CSI 0.000 / 0.014 / 0.022 —
+worse everywhere. **Masked-reconstruction pre-training is closed**: it hands the supervised stage features tuned for
+texture, which it then either overwrites (v12) or cannot escape (v12b). A pre-text task tied to motion (future-frame
+prediction) or to contrast between pre-onset and quiet skies would be the next thing to try, not more of this one.
+
+## 4 Nov — v13: road-weather (RWIS) visibility as additional ground truth
+
+Setup. Synoptic Data gave historical access (academic tier). Of the three new sources, only ADOT / NMDOT road-weather
+visibility survived calibration against the ASOS rule (`results/labels/README.md`): 37 stations, 887 positive rows
+in 61 events (+40 % positives), the same quantity the product forecasts, measured on the highway itself. The samples
+now carry those stations (`st_src` = 1) next to the 85 ASOS stations (`st_src` = 0); the validation benchmark is
+273,684 station-times, of which 202,340 are the ASOS rows of every earlier table. The ASOS-only view of v8 is
+unchanged to three decimals (0.508 / 0.383 / 0.210; persistence 0.443 / 0.354 / 0.191), so the numbers below are
+comparable with everything above. v13 = the forecast-channel recipe, v13a = the v8 recipe, both trained on
+ASOS + RWIS labels.
+
+| validation (raw) | best epoch | ASOS-only CSI +15 / +30 / +60 | ASOS onset CSI at 0.5 (POD) | RWIS stratum CSI at 0.5 (POD / FAR), n = 139 | Brier +30 |
+|---|---|---|---|---|---|
+| station persistence | — | 0.443 / 0.354 / 0.191 | 0 | 0.236 / 0.178 / 0.112 (0.65 / 0.52 / 0.35; 0.73 / 0.79 / 0.86) | — |
+| gated v8 (ASOS labels) | 1 | **0.508 / 0.383 / 0.210** | **0.051 / 0.063 / 0.093** (0.30 / 0.36 / 0.42) | **0.267 / 0.225 / 0.155** (0.53 / 0.42 / 0.28; 0.65 / 0.67 / 0.74) | **0.0026** |
+| gated v11f (ASOS, densified + forecast) | 3 | 0.483 / 0.335 / 0.221 | 0.059 / 0.062 / 0.081 (0.30 / 0.51 / 0.62) | 0.238 / 0.181 / 0.088 | 0.0034 |
+| gated v13a (ASOS + RWIS labels, v8 recipe) | 1 | 0.467 / 0.358 / 0.217 | 0.037 / 0.045 / 0.058 (0.35 / 0.42 / 0.46) | 0.188 / 0.143 / 0.071 (0.65 / 0.58 / 0.38; 0.79 / 0.84 / 0.92) | 0.0046 |
+| gated v13 (ASOS + RWIS labels, forecast recipe) | 1 | 0.453 / 0.365 / 0.199 | 0.033 / 0.042 / 0.059 (0.28 / 0.39 / 0.48) | 0.197 / 0.174 / 0.102 | 0.0041 |
+
+**Verdict: the RWIS labels do not help — they hurt, on the road stations included.** v13a against v8, same recipe:
+−0.04 / −0.025 / +0.007 ASOS-only CSI, onset CSI down a third at every lead, Brier almost doubled, and on the RWIS
+stations it was trained on 0.188 / 0.143 / 0.071 against 0.267 / 0.225 / 0.155 for v8, which never saw an RWIS label.
+What the models trained on RWIS learned is to alert more often (RWIS-stratum POD 0.65 at FAR 0.79–0.92): the
+RWIS "dust" rows pull the decision boundary toward low-visibility episodes the satellite cannot see, which is what
+the agreement check hinted at (only 19 of 61 RWIS dust events coincide with any ASOS dust report). The paired
+p-values improve (Holm 0.024 / 0.008) only because the all-station onset stratum now contains the RWIS positives —
+a benchmark artefact, not skill.
+
+Two findings worth keeping. (1) **The ASOS-trained model generalises to the road sensors it never saw**: v8 beats
+station persistence on the RWIS stratum at every lead (0.267 vs 0.236, 0.225 vs 0.178, 0.155 vs 0.112) — the first
+direct evidence of skill on the highway itself, which is where the product issues alerts. (2) The right role for the
+new sources is evaluation and live input, not training labels: `label.train_sources: [asos]` (default from today)
+masks the extended stations' discs and rows in the loss while they stay in the sample for the station channel and
+for per-source scoring; `ext_sources: [rwis]` keeps PM10 and the range sensors out altogether.
+
+Decisions: product unchanged; v8 remains the paper model, v11f the onset-detection variant; RWIS becomes a reported
+stratum ("skill on road-weather stations, zero-shot"). Closed: PM10 labels, range-sensor labels, RWIS labels.
+
+## 5–7 Nov — v14: radar inputs and a dense satellite head (`configs/radar_v14.yaml`, `aux_v14a.yaml`, `radar_only_v14b.yaml`)
+
+Two ingredients borrowed from the Saharan dust systems (DustNet, AI-GAMFS), tested together and apart, on top of the
+v11f recipe (densified onset windows + HRRR forecast block):
+- **radar**: NEXRAD composite reflectivity (IEM N0Q mosaic) at t0−20, t0−10, t0, maximum dBZ per 4-km cell so the
+  outflow "fine line" survives (`data/radar.py`, `scripts/19_add_radar.py`; 28,088 frames, 425 of 27,251 samples
+  with a missing frame filled with zeros);
+- **dense head**: a second output predicting the painted satellite + station target at every labelled pixel at full
+  weight (`loss.w_aux: 1`), the "learn from a dense satellite product" idea.
+
+Same validation half and ASOS-only view as every earlier table (raw probabilities; onset at threshold 0.5):
+
+| model | best epoch | CSI +15 / +30 / +60 | onset CSI +15 / +30 / +60 | onset POD / FAR at +60 | Brier +30 | p vs persist. +30 (Holm) |
+|---|---|---|---|---|---|---|
+| v8 (paper model) | 1 | **0.508** / 0.383 / 0.210 | 0.051 / 0.063 / 0.093 | 0.42 / 0.89 | 0.0026 | 0.014 (0.056) |
+| v11f (densified + forecast) | 3 | 0.483 / 0.335 / 0.221 | 0.059 / 0.062 / 0.081 | 0.62 / 0.91 | 0.0034 | 0.012 (0.048) |
+| v14a = v11f recipe + dense head only | 1 | 0.510 / 0.381 / 0.213 | 0.024 / 0.051 / 0.051 | 0.17 / 0.93 | 0.0024 | 0.030 (0.12) |
+| v14 = + radar + dense head | 8 | 0.497 / **0.394** / **0.235** | 0.061 / 0.070 / 0.100 | 0.43 / 0.89 | 0.0024 | 0.014 (0.056) |
+| **v14b = + radar only** | 12 | 0.493 / 0.384 / 0.229 | **0.088 / 0.103 / 0.142** | 0.42 / **0.82** | **0.0020** | **0.004 (0.016)** |
+
+**Attribution: the gain is the radar; the dense head is neutral alone and harmful in combination.** v14a (head only)
+behaves like v8 — peaks at epoch 1, onset worse — so a dense satellite target adds nothing the station-centred crops
+did not already give. Radar alone (v14b) lifts onset CSI by **+73 % / +63 % / +53 %** over v8 at the three leads,
+the largest single-step onset gain of the project, *and* lowers the onset false-alarm ratio at +60 from 0.89 to
+0.82 — the first time a detection gain was not paid for in false alarms. It is the first single-fold model with a
+Holm-corrected p below 0.02, keeps all-station CSI within ±0.02 of v8 (−0.015 at +15, +0.001 at +30, +0.019 at +60),
+trains to epoch 12, and has the best Brier score of any run. Adding the dense head to radar (v14) gives back about
+a third of the onset gain. Physically this is what the haboob literature predicts: the outflow boundary that
+precedes the dust is a radar feature (a thin line of weak echo) that no satellite channel resolves.
+
+Caveats, in order of importance:
+1. **Radar latency.** The mosaic frame stamped t0 is published a few minutes after t0; v14b used it. A forecast issued
+   at t0 has only t0−10 and t0−20. `configs/radar_lag_v14c.yaml` (`channels.radar_latency_frames: 1`) retrains with
+   the t0 frame blanked in training *and* evaluation; v14b's gain counts only if v14c keeps it. Running 7 Nov.
+2. **Road-weather stratum at +60.** On the 37 RWIS stations (never trained on), best-threshold CSI is
+   0.263 / 0.230 / 0.075 for v14b vs 0.296 / 0.245 / 0.155 for v8 (v14: 0.270 / 0.143 / 0.043). The radar models
+   lose skill on the highway sensors at the longest lead while gaining it at the airports. 139 positives per lead,
+   so the interval is wide, but the sign is consistent across v14 and v14b. Not yet understood.
+3. Single fold, 83–130 onset positives per lead; the pooled two-fold test that settled v8 has not been run for v14b.
+4. The ensemble check failed on 5 Nov because the v4 members had been scored on the pre-RWIS benchmark (rows do not
+   line up); they are being re-scored on the current benchmark (job 90) and the ensembles re-run.
+
+**v14c — the latency test (7 Nov): the radar gain does not survive a 10-minute delay.** Blanking the t0 frame in
+training and evaluation (`configs/radar_lag_v14c.yaml`), so the model sees only t0−10 and t0−20:
+
+| model | best epoch | CSI +15 / +30 / +60 | onset CSI +15 / +30 / +60 | onset FAR +60 | p vs persist. (Holm) | RWIS best-thr CSI |
+|---|---|---|---|---|---|---|
+| v8 (no radar) | 1 | 0.508 / 0.383 / 0.210 | 0.051 / 0.063 / 0.093 | 0.89 | 0.014 (0.056) | 0.296 / 0.245 / 0.155 |
+| v14b (radar t0−20, −10, **0**) | 12 | 0.493 / 0.384 / 0.229 | **0.088 / 0.103 / 0.142** | **0.82** | 0.004 (0.016) | 0.263 / 0.230 / 0.075 |
+| v14c (radar t0−20, −10 only) | 1 | 0.498 / 0.373 / 0.187 | 0.031 / 0.046 / 0.051 | 0.94 | 0.008 (0.032) | 0.299 / 0.256 / 0.141 |
+
+Every part of v14b's gain sits in the newest frame: without it, onset skill falls *below* v8, the training curve
+reverts to the one-epoch peak, and (consistently) the road-weather regression at +60 disappears too. Physically the
+signal is fast: an outflow boundary moves 10–20 m/s, 6–12 km (two to three grid cells) in ten minutes, so a frame
+ten minutes old puts the gust front in the wrong cells, and the satellite and station channels already carry what
+older radar knows. Radar here is a *now-observation* of the gust front, not a precursor with lead time to spare.
+
+**v14d — the operational test (7–8 Nov): with the 5-minute-old frame a live system has, the gain is gone too.**
+Frames at t0−25, −15, −5 (`xr_lag5`; IEM publishes the mosaic about 5 min after valid time), same recipe:
+
+| model | radar frames | best epoch | CSI +15 / +30 / +60 | onset CSI +15 / +30 / +60 | onset FAR +60 | Holm p | RWIS best-thr CSI |
+|---|---|---|---|---|---|---|---|
+| v8 | none | 1 | **0.508 / 0.383** / 0.210 | 0.051 / 0.063 / 0.093 | 0.89 | 0.056 | 0.296 / 0.245 / 0.155 |
+| v14b | t0−20, −10, 0 | 12 | 0.493 / 0.384 / **0.229** | **0.088 / 0.103 / 0.142** | **0.82** | **0.016** | 0.263 / 0.230 / 0.075 |
+| v14d | t0−25, −15, −5 | 1 | 0.493 / 0.361 / 0.200 | 0.029 / 0.050 / 0.065 | 0.92 | 0.056 | 0.287 / 0.231 / 0.145 |
+| v14c | t0−20, −10 | 1 | 0.498 / 0.373 / 0.187 | 0.031 / 0.046 / 0.051 | 0.94 | 0.032 | 0.299 / 0.256 / 0.141 |
+
+**Verdict: radar is closed as an input for this system.** Every radar model whose newest frame is five or more minutes
+old performs at or below v8 and trains like v8 (peak at epoch 1); only the frame stamped t0 itself carries the gain.
+
+**And v14b itself is not reported as a result.** A five-minute shift in the newest frame turns a +53–73 % onset gain
+into a loss. Gust-front motion is about one grid cell in five minutes, which the U-Net tolerates everywhere else,
+so a jump that large is more than the physics we can name explains. The likeliest alternative is a time-alignment
+artefact: the IEM WMS-T service resolves a requested TIME to a mosaic frame by a rule we did not verify (nearest
+versus preceding frame; scan start versus scan end), so "t0" may include radar scans completed after t0 — data the
+forecast would not have, and dust walls already visible to radar but not yet to any station, which is exactly the
+onset stratum. Until that is checked against single-site Level-II volumes with known scan times
+(AWS `noaa-nexrad-level2`, KIWA / KEMX), v14b is an *unverified upper bound*, quoted only with this caveat, and
+nothing radar-based enters the paper model or the product.
+
+Ensembles (full benchmark incl. the road-weather stratum, best overall threshold): with v8 0.325 / 0.261 / 0.184;
+with v14b 0.334 / 0.295 / 0.190; with v14d 0.353 / 0.299 / 0.203. The v14d ensemble's lift comes from the road-weather
+rows, where v14d is close to v8 and the members disagree usefully; on the ASOS rows that every model table above uses,
+v14d is below v8, so the product ensemble is not changed on this evidence.
+
+Code kept for the record: `channels.radar`, `radar_key`, `radar_latency_frames` (default off), `data/radar.py`,
+`scripts/19_add_radar.py --offsets/--key`. Paper model: **v8**. Onset-detection variant: **v11f**. Product: unchanged.
+
+## 9 Nov — final models on all data before the test year (pre-registered before training)
+
+Decision (Gautam, 9 Nov): train the final models on **2018–2024 plus every 2025 event** — the 2025 validation half
+goes into training. 2025 was a record dust year (Dust Storm Warnings: El Paso 147, Albuquerque 56, Midland 45,
+Tucson 34), and half of it was being held back. With no validation half left, nothing can be chosen on data:
+
+- **Recipes and lengths are fixed from validated runs.** `configs/final_v8full.yaml` = v8 recipe, 2 epochs (v8's best
+  epoch was 1); `configs/final_v11ffull.yaml` = v11f recipe, 4 epochs (best epoch 3). Same cosine schedule over 50
+  epochs, stopped there (`train.fixed_epochs`); the last weights are kept (`splits.val_fold: none`).
+- **v8full is the final paper model and v11ffull the onset variant, whatever they score on 2026.** That score is a
+  disclosed *second look* at the sealed test year (the first was v8 on 28 Oct, `results/test_2026/`), and it decides
+  nothing about these two models.
+- Scores on 2026 are reported **raw** (no calibration): the calibration in `05_evaluate.py` is fitted on the 2025
+  validation half, which these models trained on.
+- Whether the product ensemble switches to the full-data members is a separate decision, taken after the 2026
+  numbers are seen and reported as such.
+
+### 10 Nov — the second look: final models on 2026 (raw scores)
+
+Both models trained as pre-registered: v8full 2 epochs, v11ffull 4 epochs, 24,252 training samples, about 710 s per
+epoch, no validation split. Full table and reading: `results/test_2026/README.md` (section "Second look").
+
+- **v8full (paper model)** on 2026, ASOS stations only (Automated Surface Observing System), best-threshold CSI:
+  0.165 / 0.159 / 0.086, against 0.165 / 0.152 / 0.097 for v8 and 0.193 / 0.097 / 0.051 for station persistence.
+  Onset at 0.5, all stations: 0.031 / 0.036 / 0.024, every interval above zero, Holm p < 0.001 against every baseline.
+  Adding the 2025 validation half changed v8 by less than the event-bootstrap noise: same picture, slightly better
+  onset, slightly worse at +60.
+- **v11ffull (onset variant)**: 0.181 / 0.133 / 0.103. It has the best +60 score and the best onset scores of any model on
+  2026 (all stations at 0.5: 0.045 / 0.057 / 0.038, intervals above zero at +30 and +60; Holm p 0.008).
+  It is also the best-behaved at the fixed 0.5 cutoff (ASOS CSI 0.121 / 0.100 / 0.070 against v8full's
+  0.076 / 0.055 / 0.035): fewer false alarms (FAR 0.84–0.91 against 0.92–0.96).
+- Neither beats station persistence at +15 on 2026.
+- **Disclosure.** The first scoring of these two (job 97) still fitted a temperature on the 2025 validation half, which
+  they had trained on. `eval/evaluate.py` now keeps a final model's scores raw (T = 1; commit 09e130e) and both were
+  re-scored (job 98). Temperature does not move a 0.5 cutoff or the onset p-values; it moved best-threshold CSI by at
+  most 0.005 through the threshold grid. The numbers above are the raw ones.
+
+## 15–16 Nov — v15: "wind first" (station wind as input and as a second target)
+
+Idea: every run so far is limited by labelled dust onsets (379 in the 544 event days). A dust storm is an outflow
+crossing erodible ground, and the same 85 ASOS stations (Automated Surface Observing System) record **13,596
+strong-wind onsets** (peak wind, the larger of sustained wind and gust, reaching 30 kt after an hour below it) in those
+days; 86 % of dust reports come with at least 25 kt. `scripts/20_add_wind.py` adds to every sample the station wind at
+t0 (inputs, reports at or before t0 only) and the peak wind at t0 + lead (targets); `loss.w_wind` adds a wind head on
+the sky branch; `channels.wind` paints the current station wind as four input channels.
+
+### v15a = v11f recipe + station-wind inputs + wind head (`configs/wind_v15a.yaml`), best epoch 1 of 10
+
+Validation fold 0, ASOS stations, v8 and v11f on the same (extended-label) benchmark:
+
+| | CSI best +15 / +30 / +60 | onset CSI at 0.5 | onset POD at 0.5 | Holm p vs persistence |
+|---|---|---|---|---|
+| station persistence | 0.443 / 0.354 / 0.191 | 0 | 0 | — |
+| gated_unet v8 | 0.510 / 0.393 / 0.215 | 0.052 / 0.081 / 0.096 | 0.20 / 0.30 / 0.27 | 0.056 |
+| gated_unet v11f | 0.490 / 0.359 / 0.214 | 0.060 / 0.076 / 0.104 | 0.11 / 0.27 / 0.32 | 0.048 |
+| **gated_unet v15a** | 0.503 / 0.388 / 0.209 | 0.030 / 0.059 / 0.053 | 0.07 / 0.13 / 0.10 | 0.12 |
+
+The wind head itself (event: peak wind >= 30 kt at t0 + lead; CSI at the best threshold):
+
+| | +15 | +30 | +60 |
+|---|---|---|---|
+| all station-times: model / wind persistence | 0.490 / 0.418 | 0.454 / 0.383 | 0.421 / 0.326 |
+| wind onsets (below 30 kt at t0; persistence = 0): CSI | 0.301 | 0.280 | 0.281 |
+| wind onsets: POD / FAR | 0.57 / 0.61 | 0.51 / 0.62 | 0.50 / 0.61 |
+| wind-onset positives | 5,028 | 4,832 | 5,217 |
+
+Reading:
+- **The outflow is predictable.** The model catches half of all strong-wind onsets an hour ahead with a false alarm
+  ratio of 0.61. Dust-onset detection has never been above CSI 0.10 with FAR about 0.9. The sky branch can see the
+  wind coming; that part of the problem is far easier than we had been able to show with dust labels alone.
+- **The dust output did not benefit in this run** (overall equal to v8, onset worse than v8 and v11f). The dust score
+  peaked at epoch 1 and that checkpoint was kept, when the wind head had had one pass over its labels; the two
+  targets were only sharing features, nothing made the dust output USE the wind output.
+- Next (v15c): train the sky branch on wind alone for a fixed 8 epochs, then add the dust terms on top
+  (`configs/wind_pre_v15c.yaml`, `wind_v15c.yaml`). v15b (wind head without wind inputs) is the control.
+
+### v15b (wind head, no wind inputs) and the wind-only model (`wind_pre_v15c`, 8 fixed epochs)
+
+| | CSI best +15 / +30 / +60 | onset CSI at 0.5 | wind-onset CSI +15 / +30 / +60 |
+|---|---|---|---|
+| gated_unet v15a | 0.503 / 0.388 / 0.209 | 0.030 / 0.059 / 0.053 | 0.301 / 0.280 / 0.281 |
+| gated_unet v15b | 0.500 / 0.374 / 0.209 | 0.032 / 0.053 / 0.057 | 0.310 / 0.302 / 0.305 |
+| wind only (no dust terms) | — | — | **0.347 / 0.324 / 0.321** (POD 0.59 / 0.55 / 0.54, FAR 0.55) |
+
+The station-wind inputs add nothing over the head alone (v15a against v15b), and neither helps dust.
+
+### Why wind-first cannot be the breakthrough: wind is necessary, not sufficient (16 Nov)
+
+Validation fold 0, ASOS onset rows (no dust within 50 km at t0), from `runs/wind_pre_v15c/eval_val_preds.npz`:
+
+| | +15 | +30 | +60 |
+|---|---|---|---|
+| dust onsets (strict label) | 46 | 83 | 130 |
+| of these, observed peak wind >= 30 kt at that time | 87 % | 83 % | 85 % |
+| of these, wind forecast >= 0.5 at t0 | 78 % | 70 % | 77 % |
+| station-times with observed wind >= 30 kt | 6,848 | 8,385 | 8,294 |
+| share of those that are strict dust | 0.6 % | 0.8 % | 1.3 % |
+| dust-onset CSI of a PERFECT wind forecast (alert when wind >= 40 kt) | 0.019 | 0.022 | 0.033 |
+| dust-onset CSI of v8 / v11f (for comparison) | 0.052 / 0.060 | 0.081 / 0.076 | 0.096 / 0.104 |
+
+- The sky branch already sees the outflow: the wind forecast fires ahead of three in four dust onsets.
+- Knowing the wind exactly would still give a dust alert that is wrong 97-99 times in 100. The existing models are
+  already three to five times better than a perfect wind forecast. What is missing is not "is an outflow coming" but
+  "will this outflow lower visibility to a mile at this station".
+
+### What the strict label hides (all 544 event days, ASOS reports)
+
+| | reports | onsets (60-min gap) |
+|---|---|---|
+| strict label (<= 1 mi, dust code, warning / Storm Events cross-check) | 2,222 | 379 |
+| dust code and visibility <= 1 mi, any cross-check | 3,879 | — |
+| dust code and visibility <= 3 mi | 15,643 | 2,490 |
+| dust code and visibility <= 6 mi | 33,275 | 5,351 |
+| any dust code | 35,531 | 5,547 |
+| peak wind >= 30 kt | 96,596 | 13,596 |
+| peak wind >= 30 kt with a dust code | 16,587 (17 %) | — |
+| peak wind >= 30 kt with the strict label | 1,766 (1.8 %) | — |
+
+- Most of what the strict benchmark counts as a false alarm in strong wind is real, weaker dust: 17 % of strong-wind
+  reports carry a dust code, 1.8 % meet the strict label.
+- The lower-severity event (dust code, visibility <= 3 mi) has 6.6 times the onsets and is the same physics.
+- Next (v16, `configs/tier_v16.yaml`): a blowing-dust head on that event, through the same gate, as a second training
+  target and as a second product tier with its own verification. The strict label and the primary metric do not change.
+
+### v15c (two-stage: wind only, then dust on top), best epoch 11 of 18
+
+| | CSI best +15 / +30 / +60 | onset CSI at 0.5 | onset POD / FAR at +60 | Holm p |
+|---|---|---|---|---|
+| gated_unet v8 | 0.510 / 0.393 / 0.215 | 0.052 / 0.081 / 0.096 | 0.27 / 0.87 | 0.056 |
+| gated_unet v11f | 0.490 / 0.359 / 0.214 | 0.060 / 0.076 / 0.104 | 0.32 / 0.87 | 0.048 |
+| gated_unet v15c | 0.423 / 0.333 / **0.236** | **0.077** / 0.078 / **0.148** | 0.31 / **0.78** | 0.34 |
+
+A trade: the best +60 and the best onset scores so far, with fewer onset false alarms at +60, paid for with clearly
+worse +15 and +30. The onset interval at +60 is wide ([0.01, 0.21], all stations) and the paired test at +30 is not
+significant. Not adopted; kept as evidence that wind pre-training moves skill toward the long lead.
+
+## 16 Nov — v16: a blowing-dust head (dust code and visibility <= 3 mi), `configs/tier_v16.yaml`, best epoch 1 of 10
+
+`scripts/22_add_dust_tiers.py`: 1,887,749 station rows with a target, 19,855 with blowing dust.
+
+Strict benchmark (unchanged label), ASOS:
+
+| | CSI best +15 / +30 / +60 | onset CSI at 0.5 | onset POD at 0.5 |
+|---|---|---|---|
+| gated_unet v8 | 0.510 / 0.393 / 0.215 | 0.052 / 0.081 / 0.096 | 0.20 / 0.30 / 0.27 |
+| gated_unet v16 | 0.503 / **0.404** / 0.221 | 0.026 / 0.040 / 0.043 | 0.04 / 0.08 / 0.08 |
+
+The blowing-dust head itself (event: dust code with visibility <= 3 mi, or a strict label), CSI at the best threshold:
+
+| | +15 | +30 | +60 |
+|---|---|---|---|
+| all: model / blowing-dust persistence | 0.300 / 0.456 | 0.304 / 0.356 | 0.273 / 0.288 |
+| onset: CSI [95 % CI] | 0.099 [0.04, 0.14] | 0.122 [0.04, 0.17] | 0.124 [0.03, 0.19] |
+| onset: POD / FAR | 0.21 / 0.84 | 0.19 / 0.75 | 0.20 / 0.75 |
+| positives: all / onset | 1,036 / 336 | 1,428 / 640 | 1,469 / 804 |
+
+Reading:
+- Overall strict skill is at the level of v8 (best +30 so far); strict onset at 0.5 is lower because the model is
+  less confident (POD 0.04-0.08 at 0.5), not adopted.
+- The blowing-dust alert is easier on onsets than the strict one (CSI 0.12 with FAR 0.75, against 0.05-0.10 with FAR
+  0.9) but this run undersells it twice: the checkpoint was picked on the strict score after two epochs, and the model
+  loses to blowing-dust persistence overall because it cannot see what persistence uses, the stations' current dust
+  reports below the strict threshold.
+- Next: `channels.dust_now` paints those reports. v16b trains the blowing-dust target alone for 8 fixed epochs with
+  that input (how good can the second tier be?); v16c is v16 with that input (does it help the strict benchmark?).
+
+### v16b (blowing-dust target alone, 8 fixed epochs, `channels.dust_now`) and v16c (v16 + `channels.dust_now`)
+
+Blowing-dust head (dust code and visibility <= 3 mi), CSI at the best threshold:
+
+| | all +15 / +30 / +60 | onset +15 / +30 / +60 | onset FAR |
+|---|---|---|---|
+| blowing-dust persistence | 0.456 / 0.356 / 0.288 | 0 | — |
+| v16 (no current-report input) | 0.300 / 0.304 / 0.273 | 0.099 / 0.122 / 0.124 | 0.84 / 0.75 / 0.75 |
+| v16c (with current-report input) | 0.368 / 0.339 / 0.278 | 0.083 / 0.121 / 0.125 | 0.84 / 0.79 / 0.81 |
+| v16b (target alone) | 0.067 / 0.077 / 0.082 | 0.010 / 0.018 / 0.027 | 0.99 / 0.98 / 0.97 |
+
+Strict benchmark, v16c (best epoch of 10): CSI best 0.505 / 0.389 / 0.221; onset at 0.5 0.036 / 0.056 / 0.069
+(all stations 0.028 [0.01, 0.05] / 0.049 [0.03, 0.07] / 0.063 [0.03, 0.09]); Holm p < 0.001 against persistence.
+
+Reading:
+- **v16b failed** and is not a product test: trained on station points of one target only, its loss fell
+  (0.123 -> 0.059) while validation skill collapsed. v16c shows the new input is sound, so the cause is the
+  single-target training without the pixel-level terms, not the data. Closed.
+- **The current-report input helps the blowing-dust output where dust already exists** (all: 0.30 -> 0.37 at +15) but
+  it still does not beat blowing-dust persistence overall, and onsets are unchanged (0.12, FAR about 0.8).
+- **Strict benchmark: no gain.** v16c equals v8 overall and is below it on onsets at 0.5, with tighter intervals.
+
+### Verdict on 15–16 Nov (v15a, v15b, v15c, v16, v16b, v16c)
+
+Six runs with two new kinds of target (wind: 36x the onsets; blowing dust: 6.6x) and two new station inputs. Every
+one lands on the same numbers: strict CSI about 0.50 / 0.39 / 0.21, strict onset 0.03-0.10 with FAR about 0.9,
+blowing-dust onset 0.12 with FAR about 0.8. More labels of related events did not move dust onset. Together with the
+perfect-wind test (a perfect wind forecast gives onset CSI 0.02-0.03) this says the limit is not how the sky branch
+is trained but what the inputs contain about WHERE a strong wind will lower visibility: surface state and the
+position of the dust wall between stations. Further gains need new observations (radar with verified timing,
+road-level visibility sensors, a larger domain), not further targets on the same inputs.
+
+## 17 Nov — radar re-opened: the timing is clean and the onset gain repeats
+
+**Timing.** v14 was closed on 8 Nov because the gain existed only with the frame stamped t0, which looked like a
+timestamp artefact. The IEM (Iowa Environmental Mesonet) archive listing settles it: the N0Q mosaic stamped T is
+written about two minutes BEFORE T (`n0q_202508260000.png` written 23:58 UTC, and so on every 5 minutes that day).
+The t0 frame holds no data from after t0 and a live system has it at t0. (Checked on one day's listing.)
+
+**Reproducibility** (`scripts/23_pair_models.py`, `results/radar_repro/`). Radar recipe v14b against the same recipe
+without radar (v11f), same rows, ASOS stations, event bootstrap B = 1000. Onset CSI at 0.5; p = P(radar <= no radar).
+
+| | +15 | +30 | +60 |
+|---|---|---|---|
+| fold 0, v14b / v11f | 0.098 / 0.060 (p 0.039) | 0.099 / 0.076 (p 0.21) | 0.135 / 0.104 (p 0.069) |
+| fold 0, v14b seed 7 / v11f | 0.065 / 0.060 (p 0.33) | 0.090 / 0.076 (p 0.28) | 0.111 / 0.104 (p 0.24) |
+| **both folds pooled (all 2025 out of sample)** | **0.062 / 0.027 (p < 0.001)** | **0.081 / 0.045 (p 0.016)** | **0.097 / 0.067 (p 0.034)** |
+| pooled difference, 95 % interval | [0.015, 0.054] | [0.002, 0.072] | [−0.002, 0.061] |
+| pooled onset positives | 204 | 333 | 467 |
+
+CSI at the best threshold, all ASOS station-times, pooled: 0.417 / 0.379 / 0.280 with radar against
+0.457 / 0.378 / 0.283 without (p 0.95 / 0.49 / 0.58).
+
+Reading:
+- **Radar helps on onsets and the effect is significant over all of 2025**: +0.03 to +0.035 CSI at every lead, roughly
+  1.5 to 2 times the no-radar onset score. It is not the +53-73 % single-run jump of 7 Nov: a second seed on fold 0
+  gives a smaller, non-significant gain, so about half of that first result was run-to-run variance.
+- **It costs at +15 overall** (0.417 against 0.457) and is neutral at +30 and +60: radar moves skill toward new storms,
+  not toward dust that already exists.
+- Caveats: one run per recipe on fold 1; thresholds at 0.5 after each model's own temperature scaling.
+- v14c / v14d (older newest frame, no gain) each stopped at epoch 1 and were single runs; they are not evidence
+  against the t0 frame. Radar is the first input since the static gate with a significant onset effect.
+
+## 17 Nov — alert lead time against the NWS Dust Storm Warning (`scripts/24_warning_lead_time.py`)
+
+Every strict dust onset at an ASOS station in the 2025 validation events, both folds, each scored by the model that
+did not train on it: 133 onsets in 129 events (31 monsoon, June-September). Model alert = P >= threshold at any lead
+for the station's cell at a forecast time before the onset, within 90 min. NWS (National Weather Service) = the
+first Dust Storm Warning whose polygon (or county text) covers the station around the onset. `results/lead_time/`.
+
+| | NWS warning | v8 at 0.80 (product) | v8 at 0.50 | radar v14b at 0.50 |
+|---|---|---|---|---|
+| alerted BEFORE dust reached the station | 56 % | 14 % | 34 % | 41 % |
+| median lead when alerted before | 67 min | 68 min | 70 min | 68 min |
+| model earlier than NWS | — | 8 % | 20 % | 24 % |
+| NWS earlier than model | — | 53 % | 47 % | 47 % |
+| neither ahead of the dust | 44 % | 39 % | 32 % | 29 % |
+| **either ahead of the dust** | 56 % | 61 % | 68 % | **71 %** |
+| monsoon onsets: alerted before / median lead | 58 % / 15 min | 6 % / 50 min | 32 % / 45 min | 26 % / 63 min |
+| station-time alerts with no dust within 60 min | — | 24 % | 41 % | 48 % |
+
+A warning exists for 76 % of the onsets but for a quarter of those it was issued after the dust had reached the
+station (median lead over all warned onsets 33 min). Of 298 (warning, ASOS station inside it) pairs, 55 % saw no
+strict dust at the station.
+
+Reading:
+- **The NWS is ahead more often than the model** at any threshold. The model does not replace the warning.
+- **The model adds advance notice where the warning had none**: with it, onsets with some warning ahead of the dust
+  rise from 56 % to 61 % (product threshold), 68 % (0.5) or 71 % (radar, 0.5).
+- **Monsoon storms are where the lead time differs**: the warning precedes the dust by a median 15 min, the model's
+  alerts, when it has one, by 45-63 min. It has one for a third of them at best.
+- Caveats: the strict label requires an NWS product or Storm Events entry near the report, so dust the NWS never
+  logged cannot count for the model; the 90-min window caps the model's lead, not the warning's; 31 monsoon onsets.
+
+## 17 Nov — theory "right about the area, wrong about the point": rejected (`scripts/25_area_verification.py`)
+
+Stored v8 predictions for all of 2025 (both folds, out of sample) re-scored with a neighbourhood rule: truth = strict
+dust at any ASOS station within R, forecast = highest station probability within R. CSI at the best threshold.
+
+| R | onset +15 / +30 / +60 (model) | onset FAR | onset, persistence | all cases: model / persistence at +30 |
+|---|---|---|---|---|
+| 0 km (point) | 0.047 / 0.058 / 0.074 | 0.93 / 0.92 / 0.91 | 0 | 0.402 / 0.429 |
+| 25 km | 0.042 / 0.057 / 0.076 | 0.95 / 0.93 / 0.89 | 0 | 0.447 / 0.479 |
+| 50 km | 0.095 / 0.121 / 0.123 | 0.50 / 0.83 / 0.76 | 0.124 / 0.123 / 0.079 | 0.439 / 0.470 |
+
+Relaxing the target to 25 km changes nothing; at 50 km the score rises only as much as persistence does (the onset
+definition's own 50 km radius). The false alarms are not near misses: the model is not predicting the right storm in
+the slightly wrong place. Closed.
+
+### Stated plainly: over all of 2025 no model beats station persistence on all cases
+
+Per fold, ASOS, CSI at the best threshold (+15 / +30 / +60):
+
+| | fold 0 (158 / 208 / 208 positives) | fold 1 (599 / 781 / 810 positives) |
+|---|---|---|
+| station persistence | 0.443 / 0.354 / 0.191 | **0.513 / 0.451 / 0.362** |
+| gated_unet v8 | **0.510 / 0.393 / 0.215** | 0.496 / 0.427 / 0.333 |
+| gated_unet v11f | 0.490 / 0.359 / 0.214 | 0.452 / 0.393 / 0.312 |
+| gated_unet v14b (radar) | 0.440 / 0.356 / 0.226 | 0.427 / 0.389 / 0.298 |
+
+Fold 0, the half every table above this section uses, is the smaller and more favourable half. On fold 1, with four
+times the positives, persistence is ahead of every model at every lead; pooled, v8 scores 0.479 / 0.402 / 0.296
+against 0.498 / 0.429 / 0.323. The claim that holds on both folds and on 2026 is narrower than "beats persistence":
+**the models add skill on onsets, where persistence has none (pooled p < 0.001), and do not improve on persistence
+for dust that already exists.** 2026 looked better overall because 72 % of its positives were onsets. Any summary
+(deck, report, paper) must say this.
+
+## 17 Nov (evening) — four radar seeds: the radar gain is not established; seed variance is the size of the effects
+
+Fold 0, radar recipe v14b with four random seeds against the no-radar recipe v11f (one seed). ASOS, onset CSI at 0.5.
+
+| | +15 | +30 | +60 |
+|---|---|---|---|
+| no radar (v11f, seed 42) | 0.060 | 0.076 | 0.104 |
+| radar, seed 42 (v14b) | 0.098 | 0.099 | 0.135 |
+| radar, seed 7 | 0.065 | 0.090 | 0.111 |
+| radar, seed 11 | 0.000 | 0.053 | 0.068 |
+| radar, seed 23 | 0.060 | 0.067 | 0.120 |
+| **radar, mean of four seeds** | **0.056** | **0.077** | **0.109** |
+| radar, range over seeds | 0.000-0.098 | 0.053-0.099 | 0.068-0.135 |
+
+All cases, CSI at the best threshold: radar seeds 0.440-0.495 / 0.356-0.389 / 0.221-0.251 against 0.490 / 0.359 /
+0.214. The max ensemble of the four radar seeds is no better than its best member
+(`results/radar_repro/val_ensemble_radar_4seeds.json`).
+
+Reading:
+- **Averaged over seeds, radar gives no onset gain on fold 0** (0.056 / 0.077 / 0.109 against 0.060 / 0.076 / 0.104).
+  The first run (seed 42) was the luckiest of four. The pooled two-fold result this morning (p < 0.001 at +15) compared
+  ONE radar run with ONE no-radar run per fold: its bootstrap resamples events, not training runs, so it cannot see
+  this variance. That significance claim is withdrawn; radar is "not shown", neither confirmed nor refuted.
+- **The same caveat applies to every single-run comparison in this file** (v8 against v11f, v15, v16, the 7 Nov radar
+  runs). Onset CSI at 0.5 moves by 0.03-0.10 between seeds of one recipe, which is as large as any difference
+  between recipes reported here. Only two onset results do not depend on it: every run scores above persistence's
+  zero, and no run has reached 0.15.
+- From here on a recipe is compared with at least three seeds per arm, on the mean and the spread.
+
+## 18 Nov — v17: dust hotspot climatology in the gate, three seeds per arm: rejected
+
+`scripts/26_build_hotspot.py`: two maps from 2018-2024 only (satellite dust frequency from 5,965 training samples;
+Dust Storm Warning frequency from 403 polygons), given to the gate as extra ground channels (`channels.hotspot`).
+Mean value at the ASOS stations 0.02 / 0.16. Three seeds (42, 7, 11) with the map against three seeds of the same
+recipe (v11f) without it; fold 0, ASOS; `scripts/27_seed_table.py`, mean [min, max] over seeds.
+
+| | hotspot (v17) | baseline (v11f recipe) | Welch t |
+|---|---|---|---|
+| all cases, CSI best, +15 | 0.490 [0.477, 0.513] | 0.486 [0.483, 0.490] | 0.3 |
+| all cases, CSI best, +30 | 0.375 [0.370, 0.382] | 0.360 [0.339, 0.382] | 1.1 |
+| all cases, CSI best, +60 | 0.223 [0.217, 0.233] | 0.228 [0.214, 0.255] | −0.4 |
+| onset CSI at 0.5, +15 | 0.038 [0.011, 0.053] | **0.071 [0.060, 0.079]** | −2.2 |
+| onset CSI at 0.5, +30 | 0.075 [0.071, 0.077] | **0.088 [0.076, 0.099]** | −1.9 |
+| onset CSI at 0.5, +60 | 0.094 [0.088, 0.097] | **0.122 [0.104, 0.143]** | −2.4 |
+| onset FAR at 0.5, +60 | 0.889 [0.885, 0.896] | 0.854 [0.834, 0.867] | 3.3 |
+
+- **The hotspot map lowers the onset score at every lead** and raises the onset false alarm ratio; all cases are
+  level. Where dust was seen before is not where the next onset is missed. Closed.
+- **Reference from here on: the three-seed baseline**, onset 0.071 / 0.088 / 0.122 at 0.5 (POD 0.23 / 0.38 / 0.43,
+  FAR 0.90 / 0.90 / 0.85), all cases 0.486 / 0.360 / 0.228.
+- Against that reference the four radar seeds of 17 Nov (onset mean 0.056 / 0.077 / 0.109) are slightly below, not
+  above: radar is not a gain either.
+
+### Where the search stands (15–18 Nov)
+
+Tried against the v11f recipe: wind targets and inputs (v15a-c), a blowing-dust target (v16, v16b, v16c), current
+dust reports as inputs, radar with verified timing (four seeds), area-level scoring, a hotspot climatology (three
+seeds). None raises the onset score beyond seed spread; two lower it. The onset score of this architecture on these
+inputs sits at about 0.07 / 0.09 / 0.12 with a false alarm ratio near 0.9, and has done so through every variation.
+
+## 19 Nov — theory "onsets are an existing storm arriving from upstream": rejected (`scripts/28_upstream_precursors.py`)
+
+All 544 event days, ASOS reports in 10-minute bins. Onset = strict dust at a station around t0 + lead with no strict
+dust within 50 km at t0. Precursor = another station within R reporting it in the 20 min up to t0. 1,357 onset
+station-times at +60 (1,024 at +30); `results/precursors/upstream_precursors.json`.
+
+| precursor at t0, within 150 km | onsets that had it (+60) | present without an onset | onsets per alert (precision) |
+|---|---|---|---|
+| strict dust (50-150 km away) | 24 % | 0.3 % | 4.1 % |
+| any dust weather code | 59 % | 5.7 % | 0.56 % |
+| peak wind >= 30 kt | 75 % | 11.8 % | 0.35 % |
+
+Within 100 km: 13 % / 48 % / 66 % of onsets, precision 4.8 % / 0.8 % / 0.5 %. The +30 numbers are the same picture.
+
+- **Three in four onsets have no severe dust at any station within 150 km beforehand.** They are not an observed
+  dust wall arriving; a tracker of strict dust could catch a quarter of them at most, with 96 % false alarms.
+- Weaker precursors are present before most onsets but are 10-20 times too common to alert on (precision under 1 %).
+- The model already does far better than any of these rules: about 40 % of onsets caught at 85-90 % false alarms
+  is a precision of 10-15 %, twenty to forty times that of "strong wind upstream". The station information a
+  tracker would use is already in the inputs (station channel; wind and dust-report inputs of v15 / v16c added nothing).
+
+### End of the model search (15–19 Nov)
+
+Three theories measured without training (area scoring, upstream arrival, perfect wind) and four tested with training
+(wind, blowing dust, radar, hotspot). All point the same way: with satellite, model weather and 85 airport stations,
+an onset at a station is detectable about 40 % of the time an hour ahead at the cost of nine false alarms in ten,
+and nothing derived from those same sources moves that. What could move it is observation the project does not have:
+road-level visibility sensors (ADOT request sent 16 Nov), more stations, or a larger domain. Work from here goes to
+the product (two alert tiers with stated hit rates, shown beside the official warning) and the report.
+
+## 19 Nov — two alert tiers, with measured hit rates (`product.tiers`, `app/predict.road_alerts`)
+
+All 2025 validation events out of sample (v8, two folds), ASOS station-times with labels at all three leads. An
+alert = P >= threshold at any lead; a hit = strict dust at the station at any lead (within 60 min).
+
+| situation at forecast time | threshold | alerts | followed by dust | dust cases covered |
+|---|---|---|---|---|
+| dust reported within 50 km (995 station-times, 602 with dust) | 0.50 | 668 | **78 %** | **87 %** |
+| | 0.80 (old product threshold) | 396 | 80 % | 53 % |
+| no dust within 50 km (265,934 station-times, 508 with dust) | 0.30 | 880 | **14 %** | **25 %** |
+| | 0.50 | 309 | 18 % | 11 % |
+| | 0.80 (old product threshold) | 24 | 17 % | 1 % |
+
+- The tier is set by an observation (is a station within 50 km reporting dust?), not by the probability. The two
+  situations differ five-fold in reliability, and no threshold makes a new-storm alert reliable.
+- **Tier 1, "Dust nearby"**, P >= 0.5: about four alerts in five verify. The old threshold of 0.8 bought no extra
+  reliability and dropped a third of the dust cases.
+- **Tier 2, "Dust possible"**, P >= 0.3: about one alert in seven verifies; it reaches a quarter of new storms. The
+  driver view says so in words and points to the official warning.
+- Measured for v8 alone. The policy is in the config but switched off (`product.tiers.enabled: false`) until the
+  product model is v8: the three-member max ensemble has higher probabilities and these thresholds were not
+  measured for it. Decision pending.
+
+## 19 Nov — literature leads checked: raw radar moments at stations, NOAA dust forecasts
+
+**Raw Level II radar (velocity, correlation coefficient, differential reflectivity).** NWS forecasters use radar
+velocity and "non-uniform" correlation coefficient for dust (NOAA Technical Memorandum NWS-WR 290). The mosaic used
+in v14 holds reflectivity only. Five 2025 storms, 77 volumes (`scripts/29_fetch_level2.py`), lowest tilt sampled
+within 4 km of each ASOS station 8-120 km from the radar and matched to the station report within 8 min
+(`scripts/30_level2_station_check.py`, `results/level2_check/`). Medians per class; AUC = how well the quantity
+ranks dust above no dust (0.5 = no better than chance).
+
+| KIWA, three monsoon storms (17 stations) | n | reflectivity max (dBZ) | correlation coeff. | ZDR (dB) | velocity p90 (m/s) |
+|---|---|---|---|---|---|
+| strict dust | 21 | 28.0 | 0.98 | 1.84 | 10.0 |
+| weaker dust (dust code, 1-6 mi) | 59 | 14.5 | 0.95 | 1.14 | 8.7 |
+| windy (>= 25 kt), no dust | 59 | 34.5 | 0.99 | 0.66 | 11.0 |
+| calm, no dust | 448 | 18.5 | 0.93 | 1.28 | 7.5 |
+
+| KEPZ, two spring wind storms (4 stations) | n | reflectivity max | correlation coeff. | ZDR | velocity p90 |
+|---|---|---|---|---|---|
+| strict dust | 32 | 2.5 | 0.62 | 0.94 | 13.6 |
+| weaker dust | 48 | 3.0 | 0.72 | 0.53 | 13.1 |
+| windy, no dust | 19 | 8.0 | 0.55 | 0.75 | 22.4 |
+
+AUC, strict dust against windy-no-dust: KIWA reflectivity 0.48, correlation coefficient 0.37, ZDR 0.76, velocity 0.49
+(21 dust rows); KEPZ 0.28 / 0.62 / 0.53 / 0.20 (32 dust rows).
+
+- **At a station, none of the radar quantities separates dust from windy weather without dust.** In the monsoon
+  storms dust and rain share the beam (reflectivity near 30 dBZ, correlation coefficient 0.98 in both classes); in
+  the spring storms the air is nearly echo-free and the low correlation coefficient is the same with and without dust.
+  Differential reflectivity is the only quantity with a hint (0.76) and that rests on 21 rows from three storms.
+- This does not test what forecasters actually look at, the SHAPE of the echo (a thin line ahead of the storm), which
+  needs the fields as image inputs: Level II for 27,000 samples from eight radars is hundreds of gigabytes and
+  weeks of work. Not a quick win; kept as a possible direction after 9 Dec, with low expectations given this check.
+
+**NOAA dust forecasts.** The National Air Quality Forecast Capability is on AWS (`noaa-nws-naqfc-pds`): a dust
+forecast for the contiguous US at about 5 km, twice a day (06 and 12 UTC), out to 48 hours; the archive description
+starts in 2020. Two runs a day cannot carry a thunderstorm outflow that forms in the afternoon, so it could help
+only the spring wind events, and 2018-2019 would be missing. Low priority.
+
+## 19 Nov — are we missing labels? Station-confirmed dust without a warning, re-scored
+
+Inside the event days, 1,657 reports have a dust code and visibility <= 1 mi but no strict label: 1,390 are haze
+only (rightly excluded) and **267 carry a real dust code** (BLDU 176, DS 62 ...; median peak wind 35 kt; 4 % with
+rain) and are excluded only because no warning or Storm Events entry is near. 53 onsets on 39 days; 164 of the 267
+at El Paso; by year 2018: 10, 2022: 26, 2023: 13, 2024: 44, 2025: 131, 2026: 42.
+
+Stored validation predictions re-scored with those reports counted as dust ("station-confirmed"), all of 2025:
+
+| v8, both folds | positives (+60) | onset positives (+60) | all cases: model / persistence | onset at 0.5: CSI / POD / FAR |
+|---|---|---|---|---|
+| strict label | 1,018 | 467 | 0.296 / 0.323 | 0.068 / 0.13 / 0.88 |
+| station-confirmed | 1,160 | 571 | 0.288 / 0.322 | 0.062 / 0.11 / 0.87 |
+
+Same picture at +15 and +30, for the v11f recipe, and for the three-seed ensemble on fold 0 (onset +60: 0.167 strict,
+0.165 station-confirmed).
+
+- The extra reports are real dust the benchmark does not count: 22 % more onset positives at +60 in 2025.
+- **They do not explain the false alarms.** The false alarm ratio hardly moves (0.88 -> 0.87): the model's alerts are
+  not landing on this unwarned dust; mostly it misses it, so scores stay level or dip.
+- In training these stations carry the label "no dust" at those times, a small amount of wrong supervision, but only
+  about 90 such reports fall in 2018-2024. Relabelling them is cheap and right, and unlikely to move much.
+- Dust on days outside the warning-based event list is being counted separately (`scripts/32_scan_all_days_dust.py`).
+
+## 19 Nov — seed ensemble (mean of three runs of the v11f recipe): a small, consistent gain, not a breakthrough
+
+`scripts/31_seed_ensemble.py`. Probabilities of three seeds (42, 7, 11) averaged per fold; ASOS; all of 2025 pooled.
+
+| | +15 | +30 | +60 |
+|---|---|---|---|
+| onset CSI, best threshold: ensemble / average member, pooled | 0.069 / 0.057 | 0.083 / 0.074 | 0.113 / 0.095 |
+| the same on fold 0 (46 / 83 / 130 onsets) | 0.098 / 0.075 | 0.114 / 0.098 | 0.167 / 0.128 |
+| the same on fold 1 (158 / 250 / 337 onsets) | 0.063 / 0.055 | 0.082 / 0.076 | 0.104 / 0.086 |
+| onset CSI at 0.5: ensemble / average member, pooled | 0.039 / 0.040 | 0.071 / 0.067 | 0.103 / 0.090 |
+| gain at 0.5, pooled [95 % interval], p | −0.001 [−0.02, +0.01], 0.52 | +0.005 [−0.02, +0.03], 0.34 | +0.013 [−0.02, +0.04], 0.19 |
+| all cases, best threshold: ensemble / member / persistence, pooled | 0.467 / 0.459 / 0.498 | 0.377 / 0.369 / 0.429 | 0.293 / 0.285 / 0.323 |
+
+- Fold 0 alone had suggested +0.03 to +0.045 at 0.5 (p 0.04 and 0.01). **The larger fold does not confirm that
+  size**: at the fixed 0.5 cut-off the pooled gain is not significant, and on fold 1 it is slightly negative because
+  averaging lowers the probabilities and fewer cross 0.5.
+- With the threshold chosen per model the ensemble is ahead of its average member on both folds and at every lead,
+  by 10-20 % relative (pooled +60: 0.113 against 0.095). No significance test was run for that comparison.
+- All cases improve by about 0.008 and stay below station persistence over the whole year.
+- Verdict: worth having (it costs only training time and removes run-to-run luck from the product), but it is an
+  increment. The fold-0 result was reported as promising on the morning of 19 Nov with the caveat that fold 1 was the
+  test; fold 1 has now scaled it down.
+
+## 20 Nov — dust outside the warning-based event list (all days, 2018 to Oct 2026): about a tenth of severe dust is missed
+
+`scripts/32_scan_all_days_dust.py` (job 112). Every ASOS (Automated Surface Observing System) report at the 85 stations
+with a real dust code (haze excluded) and visibility <= 6 mi; "inside" = within 6 h of an event window in `events.csv`.
+A count only: nothing was added to the labels.
+
+| dust-coded reports | inside: reports / onsets / station-days | outside: reports / onsets / station-days / days |
+|---|---|---|
+| visibility <= 1 mi (severe) | 1179 / 166 / 165 | 133 / 38 / 34 / 28 |
+| visibility <= 3 mi | 3935 / 410 / 406 | 1258 / 180 / 181 / 132 |
+| visibility <= 6 mi | 6772 / 621 / 615 | 3759 / 445 / 435 / 301 |
+
+- Severe dust outside the list, by year: 2018 6, 2019 11, 2020 5, 2021 46, 2022 4, 2023 17, 2024 21, 2025 1, 2026 22.
+  Top stations: ELP 49, ROW 29, NYL 15, HMN 12, IWA 11.
+- The event list holds 90 % of severe dust reports and 81 % of severe station onsets. The missed part is 28 days in
+  nine years (22 of the 133 reports are in 2026, the closed test year, and cannot be used for training).
+- Weaker dust is missed far more: 132 days with visibility <= 3 mi and 301 days with <= 6 mi have no event window.
+- These days have no Dust Storm Warning, so under hard rule 1 they would enter as no-dust samples. Using them as
+  positives needs the "station-confirmed" label variant (also needed for the 267 unwarned reports inside event days).
+  That is a labelling decision and has not been taken.
+- Not a hidden mass of severe storms. Adding the pre-2026 days would add roughly 30 severe onsets (about a fifth more
+  by this script's count); whether that moves onset skill is untested.
+
+## 20 Nov — station-confirmed label version (v18): data built, training started
+
+Approved by Gautam on 20 Nov as a parallel experiment; the strict rule stays the main label version.
+`scripts/33_station_events.py`, `34_add_confirmed_labels.py`, `label.variant: station_confirmed`, configs `confirmed_v18_*`.
+
+- 110 severe reports without a warning in 2018-2024 group into 23 station-only event days (`events_station.csv`).
+  Job 114 built 1,091 samples for them (10-min plus 5-min onset steps). 372 sample times failed on file errors on the
+  PC (path length, cache files in use); they were not rebuilt, so that all six runs train on the same data.
+- Confirmed labels against strict, train + validation (25,343 samples): +15 min 1,974 -> +196 (+10 %),
+  +30 min 2,283 -> +215 (+9 %), +60 min 2,383 -> +221 (+9 %). 606 samples gain a positive, 246 of them on the
+  station-only days. 202 current-report rows change to dust (the station input channel and the onset definition).
+- Design: v11f recipe, seeds 42 / 7 / 11 on both folds (jobs 115, 116). Every model is scored on the strict labels
+  (`eval_val.json`, comparable with the v11f seeds) and on the confirmed labels (`eval_val_confirmed.json`, the v11f
+  seeds too). Validation storms are unchanged; 2026 is not used.
+- Baseline seed 5 (v11f recipe, fold 0): onset CSI at 0.5 0.083 / 0.089 / 0.138, all cases 0.479 / 0.369 / 0.246.
+  Seed 23 crashed at epoch 12 when code was synced during its training; its evaluation and the five-seed file from
+  job 113 are invalid and it is retrained in job 117.
+
+## 21 Nov — v18 (station-confirmed labels + 23 station-only days), fold 0: no gain; fold 1 pending
+
+Job 115. v11f recipe, seeds 42 / 7 / 11 in both arms; ASOS; mean (standard deviation over seeds); +15 / +30 / +60.
+
+| fold 0 | v11f (strict labels, baseline) | v18 (confirmed labels + new days) |
+|---|---|---|
+| scored on STRICT labels: onset CSI at 0.5 (46 / 83 / 130 onsets) | 0.071 (0.010) / 0.088 (0.011) / 0.122 (0.020) | 0.050 (0.014) / 0.088 (0.008) / 0.105 (0.023) |
+| onset POD | 0.22 / 0.38 / 0.43 | 0.17 / 0.31 / 0.38 |
+| onset FAR | 0.90 / 0.90 / 0.85 | 0.93 / 0.89 / 0.87 |
+| all cases, best threshold (persistence 0.443 / 0.354 / 0.191) | 0.486 / 0.360 / 0.228 | 0.449 / 0.338 / 0.201 |
+| scored on CONFIRMED labels: onset CSI at 0.5 (49 / 88 / 136 onsets) | 0.064 / 0.087 / 0.121 | 0.050 / 0.091 / 0.108 |
+| all cases, best threshold (persistence 0.430 / 0.341 / 0.184) | 0.474 / 0.355 / 0.224 | 0.435 / 0.332 / 0.202 |
+
+- On either label version v18 is level at +30 and lower at +15 and +60, and lower on all cases at every lead. The
+  differences are about one seed standard deviation, so on fold 0 the honest reading is "no gain", not "worse".
+- The confirmed labels add only 3 to 6 onsets to the fold-0 validation half, so both scorings say the same thing.
+- Fold 1 (job 116, the larger half) decides.
+
+## 21 Nov — v18 on fold 1, and the two-fold verdict: station-confirmed labels do not improve the model
+
+Job 116. Same design as fold 0; mean (standard deviation over three seeds); +15 / +30 / +60.
+
+| fold 1 | v11f (baseline) | v18 (confirmed labels + new days) |
+|---|---|---|
+| scored on STRICT labels: onset CSI at 0.5 (158 / 250 / 337 onsets) | 0.023 (0.006) / 0.050 (0.022) / 0.068 (0.026) | 0.034 (0.009) / 0.056 (0.028) / 0.070 (0.031) |
+| onset POD | 0.04 / 0.09 / 0.13 | 0.08 / 0.13 / 0.14 |
+| onset FAR | 0.94 / 0.90 / 0.87 | 0.94 / 0.91 / 0.87 |
+| all cases, best threshold (persistence 0.513 / 0.451 / 0.362) | 0.466 / 0.398 / 0.312 | 0.449 / 0.393 / 0.301 |
+| scored on CONFIRMED labels: onset CSI at 0.5 (176 / 273 / 368 onsets) | 0.022 / 0.048 / 0.064 | 0.037 / 0.055 / 0.068 |
+| all cases, best threshold (persistence 0.507 / 0.450 / 0.363) | 0.463 / 0.395 / 0.310 | 0.448 / 0.397 / 0.307 |
+
+- Fold 1 onsets: v18 is ahead by 0.002 to 0.011, well inside one seed standard deviation (0.01 to 0.03). Fold 0 was
+  behind by 0 to 0.02. The two folds point in opposite directions and both differences are within seed noise.
+- All cases: lower or level on both folds (fold 0 −0.02 to −0.04, fold 1 −0.01 to −0.02 on strict labels).
+- Verdict: **no gain**. About 9 % more positives and 23 more days do not move onset skill. The strict rule stays the
+  only label version in use; `label.variant` stays in the code, off by default. The 372 unbuilt sample times were not
+  filled in (no sign that more of the same would help). Direction closed.
+
+## 21 Nov — five seeds of the v11f recipe on fold 0: slightly better than three, same conclusion
+
+Job 117 (seed 23 retrained in full; the truncated run of 20 Nov is discarded). `results/seed_ensemble_v11f_fold0_5seeds.json`.
+Fold 0, ASOS, +15 / +30 / +60 (46 / 83 / 130 onsets).
+
+| member | onset CSI at 0.5 | onset POD | onset FAR | all cases, best threshold |
+|---|---|---|---|---|
+| seed 42 | 0.060 / 0.076 / 0.104 | 0.11 / 0.27 / 0.32 | 0.88 / 0.90 / 0.87 | 0.490 / 0.359 / 0.214 |
+| seed 7 | 0.074 / 0.099 / 0.143 | 0.35 / 0.48 / 0.51 | 0.91 / 0.89 / 0.83 | 0.487 / 0.382 / 0.255 |
+| seed 11 | 0.079 / 0.088 / 0.120 | 0.22 / 0.39 / 0.46 | 0.89 / 0.90 / 0.86 | 0.483 / 0.339 / 0.216 |
+| seed 23 | 0.072 / 0.115 / 0.143 | 0.17 / 0.27 / 0.32 | 0.89 / 0.83 / 0.80 | 0.523 / 0.394 / 0.270 |
+| seed 5 | 0.083 / 0.089 / 0.138 | 0.26 / 0.29 / 0.38 | 0.89 / 0.89 / 0.82 | 0.479 / 0.369 / 0.246 |
+| mean of five (sd) | 0.073 (0.009) / 0.093 (0.015) / 0.130 (0.017) | | | 0.492 / 0.369 / 0.240 |
+
+| ensemble (mean probability) | three seeds | five seeds |
+|---|---|---|
+| onset CSI at 0.5 | 0.071 / 0.114 / 0.167 | 0.077 / 0.130 / 0.172 |
+| onset CSI, best threshold | 0.098 / 0.114 / 0.167 | 0.112 / 0.130 / 0.175 |
+| onset FAR at 0.5 | 0.88 / 0.86 / 0.80 | 0.84 / 0.83 / 0.76 |
+| all cases, best threshold (persistence 0.443 / 0.354 / 0.191) | 0.503 / 0.387 / 0.251 | 0.516 / 0.393 / 0.270 |
+
+- Five-seed ensemble against its average member, onset at 0.5: +0.004 (p 0.41) / +0.037 (p 0.014) / +0.043 (p 0.05).
+- Going from three to five members adds 0.005 to 0.016 on onsets and 0.006 to 0.019 on all cases. Fold 0 only: on
+  19 Nov the larger fold 1 cut the three-seed gain to a non-significant +0.013 at +60, so the same discount applies
+  here until fold 1 has five seeds.
+- Verdict unchanged: a seed ensemble is a small, steady increment and removes run-to-run luck. Not a breakthrough.

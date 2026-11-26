@@ -111,3 +111,63 @@ def test_finetune_ema_fold_and_policy(tmp_path):
     assert r.returncode == 0, r.stderr
     ens = json.loads((tmp_path / "ens.json").read_text())
     assert "ensemble+persistence@15" in ens["models"] and "station_persistence" in ens["models"]
+
+
+def test_final_training_without_validation(tmp_path):
+    """splits.val_fold none + train.fixed_epochs: all 2025 events train, no validation, last epoch kept."""
+    import copy
+    import json
+    cfg = copy.deepcopy(load_config())
+    cfg["paths"].update(samples=str(tmp_path / "samples"), runs=str(tmp_path / "runs"), static=str(tmp_path / "static"))
+    cfg["train"].update(batch_size=2, num_workers=0, crop=[48, 64], amp=False, fixed_epochs=2)
+    cfg["model"].update(base_channels=8, depth=2)
+    cfg["splits"]["val_fold"] = "none"
+    make_synthetic_dataset(cfg["paths"]["samples"], Grid.from_config(cfg), n=6, small=True)
+    from dustahead.train.dataset import DustDataset
+    run_dir = train(cfg, "gated_unet", tmp_path / "runs" / "full", device="cpu")
+    log = json.loads((run_dir / "log.json").read_text())
+    ck = torch.load(run_dir / "best.pt", weights_only=False)
+    assert len(log) == 2 and ck["epoch"] == 1
+    if len(DustDataset(cfg["paths"]["samples"], "val", cfg=cfg)) == 0:
+        assert ck["val"] is None
+    # evaluating it must not fit a temperature on validation events it trained on: scores stay raw
+    from dustahead.eval.evaluate import run as evaluate
+    ev_cfg = copy.deepcopy(cfg)
+    ev_cfg["splits"]["val_fold"] = 0
+    rep = evaluate(run_dir / "best.pt", ev_cfg, "train", baselines=(), device="cpu")   # synthetic data has no test split
+    assert rep["temperature"] == 1.0 and "trained on the validation" in rep["temperature_note"]
+
+
+def test_wind_first_training_and_wind_scores(tmp_path):
+    """v15 recipe on synthetic data: station-wind inputs + wind head train, and evaluation reports the wind head's
+    skill against wind persistence."""
+    import copy
+    cfg = copy.deepcopy(load_config())
+    cfg["paths"].update(samples=str(tmp_path / "samples"), runs=str(tmp_path / "runs"), static=str(tmp_path / "static"))
+    cfg["train"].update(batch_size=2, num_workers=0, crop=[48, 64], amp=False, fixed_epochs=1)
+    cfg["model"].update(base_channels=8, depth=2, gate_channels=["static", "physics"])
+    cfg["channels"].update(hrrr_fcst=6, wind=4)
+    cfg["loss"].update(w_wind=1.0, wind_kt=30.0)
+    cfg["eval"]["bootstrap"] = 20
+    make_synthetic_dataset(cfg["paths"]["samples"], Grid.from_config(cfg), n=6, small=True)
+    run_dir = train(cfg, "gated_unet", tmp_path / "runs" / "wind", device="cpu")
+    from dustahead.eval.evaluate import run as evaluate
+    rep = evaluate(run_dir / "best.pt", cfg, "val", baselines=(), device="cpu", calibrate_on=None)
+    assert "wind" in rep and rep["wind"]["all_30"]["n"] > 0 and "persistence_csi" in rep["wind"]["onset_60"]
+
+
+def test_blowing_dust_head_training_and_scores(tmp_path):
+    """v16 recipe on synthetic data: the blowing-dust head trains through the gate and evaluation reports its skill."""
+    import copy
+    cfg = copy.deepcopy(load_config())
+    cfg["paths"].update(samples=str(tmp_path / "samples"), runs=str(tmp_path / "runs"), static=str(tmp_path / "static"))
+    cfg["train"].update(batch_size=2, num_workers=0, crop=[48, 64], amp=False, fixed_epochs=1)
+    cfg["model"].update(base_channels=8, depth=2, gate_channels=["static", "physics"])
+    cfg["channels"].update(hrrr_fcst=6)
+    cfg["loss"].update(w_tier=1.0, tier_vis_mi=3.0)
+    cfg["eval"]["bootstrap"] = 20
+    make_synthetic_dataset(cfg["paths"]["samples"], Grid.from_config(cfg), n=6, small=True)
+    run_dir = train(cfg, "gated_unet", tmp_path / "runs" / "tier", device="cpu")
+    from dustahead.eval.evaluate import run as evaluate
+    rep = evaluate(run_dir / "best.pt", cfg, "val", baselines=(), device="cpu", calibrate_on=None)
+    assert "tier" in rep and rep["tier"]["all_30"]["n"] > 0 and "csi_ci" in rep["tier"]["onset_60"]

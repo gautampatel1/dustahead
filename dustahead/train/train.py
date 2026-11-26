@@ -3,6 +3,8 @@
 Two optional extras, both read from cfg["train"]:
   init_from   path of a checkpoint whose weights initialise the model (fine-tuning: continue from a trained run at a
               lower learning rate instead of starting from random weights). The optimiser state is NOT restored.
+  init_unet_from  path of a train/pretrain.py checkpoint: the U-Net (sky branch) starts from self-supervised
+              masked-reconstruction weights; the output head and the gate start fresh.
   ema_decay   > 0 keeps an Exponential Moving Average (EMA) of the weights, theta_ema <- d * theta_ema + (1 - d) * theta
               after every optimiser step. The EMA copy is what is validated and saved: averaging along the trajectory
               lands in a flatter, better-calibrated minimum than the last noisy SGD iterate (Polyak averaging).
@@ -121,11 +123,23 @@ def train(cfg: dict, model_name: str | None = None, run_dir: str | Path | None =
         n_partial = load_partial(model, ck0["model"])
         print(f"initialised from {T['init_from']} (epoch {ck0.get('epoch')}, {ck0.get('name')}; "
               f"{n_partial} tensor(s) widened for new input channels)", flush=True)
+    if T.get("init_unet_from"):            # self-supervised pre-training of the sky branch (train/pretrain.py)
+        from .pretrain import load_pretrained_unet
+        n_pre = load_pretrained_unet(model, T["init_unet_from"], device)
+        print(f"U-Net initialised from {T['init_unet_from']} ({n_pre} tensors; output head new)", flush=True)
     ema = EMA(model, float(T["ema_decay"])) if T.get("ema_decay") else None
     eval_model = ema.model if ema is not None else model
     opt = torch.optim.AdamW(model.parameters(), lr=T["lr"], weight_decay=T["weight_decay"])
     epochs = max_epochs or T["epochs"]
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, epochs)
+    # train.fixed_epochs: stop after exactly N epochs and keep the LAST weights (no early stopping, no validation
+    # needed). The cosine schedule still spans train.epochs, so N epochs here follow the same learning-rate path
+    # as the first N epochs of the validated run whose best epoch was N-1.
+    fixed = T.get("fixed_epochs")
+    if fixed:
+        epochs_run = int(fixed)
+    else:
+        epochs_run = epochs
     # bf16 has fp32's exponent range: no overflow -> no inf/NaN from the fp16 path, and no GradScaler needed
     amp_dtype = torch.bfloat16 if (device == "cuda" and torch.cuda.is_bf16_supported()) else torch.float16
     use_scaler = T["amp"] and device == "cuda" and amp_dtype == torch.float16
@@ -134,7 +148,7 @@ def train(cfg: dict, model_name: str | None = None, run_dir: str | Path | None =
     n_skipped = 0
 
     best, bad, log = -1.0, 0, []
-    for ep in range(epochs):
+    for ep in range(epochs_run):
         t_ep = time.time()
         model.train()
         tot, n = 0.0, 0
@@ -142,7 +156,8 @@ def train(cfg: dict, model_name: str | None = None, run_dir: str | Path | None =
             b = {k: (v.to(device) if torch.is_tensor(v) else v) for k, v in b.items()}
             with torch.autocast(device_type="cuda" if device == "cuda" else "cpu", dtype=amp_dtype, enabled=(T["amp"] and device == "cuda")):
                 p = model(b["x"])
-            loss, parts = crit(p.float(), b)
+            unet = getattr(model, "unet", None)
+            loss, parts = crit(p.float(), b, getattr(unet, "last_aux", None), getattr(unet, "last_wind", None), getattr(unet, "last_tier_p", None))
             if not torch.isfinite(loss):
                 n_skipped += 1
                 opt.zero_grad(set_to_none=True)
@@ -173,6 +188,14 @@ def train(cfg: dict, model_name: str | None = None, run_dir: str | Path | None =
                     ema.model.load_state_dict(sd)
             for g in opt.param_groups:
                 g["lr"] *= 0.5
+        if len(va) == 0:                     # no validation split (val_fold none): log the loss, keep the last weights
+            row = dict(epoch=ep, train_loss=tot / max(n, 1), lr=sched.get_last_lr()[0], ema=ema is not None)
+            log.append(row)
+            print(f"ep {ep:03d} loss {row['train_loss']:.4f} (no validation split)  ({time.time() - t_ep:.0f}s)", flush=True)
+            torch.save(dict(model=eval_model.state_dict(), cfg=cfg, name=name, epoch=ep, val=None,
+                            ema=ema is not None, init_from=T.get("init_from")), run_dir / "best.pt")
+            (run_dir / "log.json").write_text(json.dumps(log, indent=1, default=float))
+            continue
         val = evaluate(eval_model, dl_va, device, cfg["eval"]["threshold"])
         score = float(np.nanmean([v["csi_best"] for v in val.values()]))
         row = dict(epoch=ep, train_loss=tot / max(n, 1), val=val, val_csi=score, lr=sched.get_last_lr()[0], ema=ema is not None)
@@ -181,6 +204,11 @@ def train(cfg: dict, model_name: str | None = None, run_dir: str | Path | None =
               + " ".join(f"{k}:{v['csi_best']:.2f}@{v['thr_best']:.2f}" for k, v in val.items())
               + f" | CSI@0.5 {np.nanmean([v['csi'] for v in val.values()]):.2f} Brier {np.nanmean([v['brier'] for v in val.values()]):.4f}"
               + f"  ({time.time() - t_ep:.0f}s)", flush=True)
+        if fixed:                            # fixed-length run with a validation split: keep the last epoch, log val
+            torch.save(dict(model=eval_model.state_dict(), cfg=cfg, name=name, epoch=ep, val=val,
+                            ema=ema is not None, init_from=T.get("init_from")), run_dir / "best.pt")
+            (run_dir / "log.json").write_text(json.dumps(log, indent=1, default=float))
+            continue
         if score > best:
             best, bad = score, 0
             torch.save(dict(model=eval_model.state_dict(), cfg=cfg, name=name, epoch=ep, val=val,

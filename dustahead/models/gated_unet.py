@@ -48,14 +48,30 @@ class ConvBlock(nn.Module):
 class UNet(nn.Module):
     """Plain encoder-decoder with skip connections. Output: (B, n_out, H, W) logits."""
 
-    def __init__(self, cin: int, n_out: int = 3, base: int = 32, depth: int = 4):
+    def __init__(self, cin: int, n_out: int = 3, base: int = 32, depth: int = 4, aux: bool = False, wind: bool = False, tier: bool = False):
         super().__init__()
         chs = [base * 2 ** k for k in range(depth + 1)]
         self.enc = nn.ModuleList([ConvBlock(cin if k == 0 else chs[k - 1], chs[k]) for k in range(depth + 1)])
         self.up = nn.ModuleList([nn.ConvTranspose2d(chs[k + 1], chs[k], 2, stride=2) for k in range(depth)])
         self.dec = nn.ModuleList([ConvBlock(chs[k] * 2, chs[k]) for k in range(depth)])
         self.head = nn.Conv2d(chs[0], n_out, 1)
+        # auxiliary dense head (multi-task): predicts the SATELLITE dust mask at each lead from the same decoder
+        # features, so the sky branch gets a gradient from every labelled pixel, not only from the station discs.
+        self.aux_head = nn.Conv2d(chs[0], n_out, 1) if aux else None
+        # wind head (multi-task, "wind first"): P(strong wind at t0 + lead) from the same decoder features. A dust
+        # storm is an outflow crossing erodible ground, and strong-wind onsets are observed ~36x more often than
+        # dust onsets, so this head teaches the sky branch what an approaching outflow looks like.
+        self.wind_head = nn.Conv2d(chs[0], n_out, 1) if wind else None
+        # blowing-dust head (multi-task): P(a dust weather code with visibility <= loss.tier_vis_mi at t0 + lead).
+        # The strict label (<= 1 mi, warning-confirmed) has 379 onsets; dust-coded reports at <= 3 mi have 2,490.
+        # Same physics, lower severity: the sky branch sees 6.6x more dust onsets. Multiplied by the gate like the
+        # main output (GatedUNet.forward -> last_tier_p).
+        self.tier_head = nn.Conv2d(chs[0], n_out, 1) if tier else None
         self.depth = depth
+        self.last_aux = None
+        self.last_wind = None
+        self.last_tier = None
+        self.last_tier_p = None
 
     def forward(self, x):
         H, W = x.shape[-2:]
@@ -71,6 +87,10 @@ class UNet(nn.Module):
         for k in reversed(range(self.depth)):
             x = self.up[k](x)
             x = self.dec[k](torch.cat([x, skips[k]], 1))
+        self.last_aux = self.aux_head(x)[..., :H, :W] if self.aux_head is not None else None
+        self.last_wind = self.wind_head(x)[..., :H, :W] if self.wind_head is not None else None
+        self.last_tier = self.tier_head(x)[..., :H, :W] if self.tier_head is not None else None
+        self.last_tier_p = torch.sigmoid(self.last_tier) if self.last_tier is not None else None
         return self.head(x)[..., :H, :W]
 
 
@@ -93,27 +113,29 @@ class GroundGate(nn.Module):
 
 class GatedUNet(nn.Module):
     def __init__(self, n_leads: int = 3, base: int = 32, depth: int = 4, gate_bias: float = 2.2,
-                 dynamic=DYNAMIC, ground=GROUND):
+                 dynamic=DYNAMIC, ground=GROUND, aux: bool = False, wind: bool = False, tier: bool = False):
         super().__init__()
         self.register_buffer("dyn_idx", torch.tensor(channel_index(dynamic)))
         self.register_buffer("gnd_idx", torch.tensor(channel_index(ground)))
-        self.unet = UNet(len(self.dyn_idx), n_leads, base, depth)
+        self.unet = UNet(len(self.dyn_idx), n_leads, base, depth, aux=aux, wind=wind, tier=tier)
         self.gate = GroundGate(len(self.gnd_idx), base, gate_bias)
 
     def forward(self, x, return_parts: bool = False):
         z = self.unet(x[:, self.dyn_idx])          # (B, L, H, W) outflow logits
         h = self.gate(x[:, self.gnd_idx])          # (B, 1, H, W) gate logit
         p = torch.sigmoid(z) * torch.sigmoid(h)
+        if self.unet.last_tier is not None:        # blowing dust needs erodible ground too: same gate
+            self.unet.last_tier_p = torch.sigmoid(self.unet.last_tier) * torch.sigmoid(h)
         return (p, z, h) if return_parts else p
 
 
 class PlainUNet(nn.Module):
     """Ablation: everything into one U-Net, no gate (channels chosen by `groups`)."""
 
-    def __init__(self, n_leads=3, base=32, depth=4, groups=DYNAMIC + GROUND):   # "station" is in DYNAMIC
+    def __init__(self, n_leads=3, base=32, depth=4, groups=DYNAMIC + GROUND, aux: bool = False, wind: bool = False, tier: bool = False):   # "station" is in DYNAMIC
         super().__init__()
         self.register_buffer("idx", torch.tensor(channel_index(groups)))
-        self.unet = UNet(len(self.idx), n_leads, base, depth)
+        self.unet = UNet(len(self.idx), n_leads, base, depth, aux=aux, wind=wind, tier=tier)
 
     def forward(self, x, return_parts=False):
         z = self.unet(x[:, self.idx])
@@ -161,14 +183,20 @@ def build_model(cfg: dict, name: str | None = None) -> nn.Module:
     m = cfg["model"]
     name = name or m["name"]
     n_leads = len(cfg["time"]["leads_min"])
-    # optional HRRR forecast block: appended LAST so a checkpoint without it is a channel prefix (warm start)
-    extra = ("hrrr_fcst",) if cfg.get("channels", {}).get("hrrr_fcst", 0) else ()
+    # optional blocks, appended LAST in a fixed order so a checkpoint without them is a channel prefix (warm start)
+    ch = cfg.get("channels", {})
+    extra = (("hrrr_fcst",) if ch.get("hrrr_fcst", 0) else ()) + (("radar",) if ch.get("radar", 0) else ()) \
+        + (("wind",) if ch.get("wind", 0) else ()) + (("dust_now",) if ch.get("dust_now", 0) else ())
+    hot = ("hotspot",) if ch.get("hotspot", 0) else ()      # climatology: a ground channel (gate) in the gated model
+    wind = bool(cfg.get("loss", {}).get("w_wind", 0))      # wind head: strong wind at t0 + lead (multi-task)
+    tier = bool(cfg.get("loss", {}).get("w_tier", 0))      # blowing-dust head: dust code with visibility <= tier_vis_mi
+    aux = bool(cfg.get("loss", {}).get("w_aux", 0))        # second dense head: satellite dust mask (multi-task)
     if name == "gated_unet":
-        ground = tuple(m.get("gate_channels", GROUND))               # which channel groups the gate sees
+        ground = tuple(m.get("gate_channels", GROUND)) + hot         # which channel groups the gate sees
         dynamic = tuple(g for g in DYNAMIC + GROUND if g not in ground) + extra   # everything else goes to the U-Net
-        return GatedUNet(n_leads, m["base_channels"], m["depth"], m["gate_bias_init"], dynamic=dynamic, ground=ground)
+        return GatedUNet(n_leads, m["base_channels"], m["depth"], m["gate_bias_init"], dynamic=dynamic, ground=ground, aux=aux, wind=wind, tier=tier)
     if name == "unet_all":
-        return PlainUNet(n_leads, m["base_channels"], m["depth"], groups=DYNAMIC + GROUND + extra)
+        return PlainUNet(n_leads, m["base_channels"], m["depth"], groups=DYNAMIC + GROUND + extra + hot, aux=aux, wind=wind, tier=tier)
     if name == "unet_dust_only":
         return PlainUNet(n_leads, m["base_channels"], m["depth"], groups=("satellite",))
     if name == "convlstm":

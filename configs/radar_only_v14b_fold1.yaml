@@ -1,0 +1,8 @@
+# v14b on the other half of the 2025 events (fold 1), for pooled out-of-sample onset scores over all of 2025.
+channels:
+  hrrr_fcst: 6
+  radar: 3
+model:
+  gate_channels: [static, physics]
+splits:
+  val_fold: 1

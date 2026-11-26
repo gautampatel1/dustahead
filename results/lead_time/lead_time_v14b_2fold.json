@@ -1,0 +1,110 @@
+{
+ "runs": [
+  "runs\\gated_unet_v14b",
+  "runs\\gated_unet_v14b_fold1"
+ ],
+ "window_min": 90,
+ "thresholds": [
+  0.8,
+  0.5
+ ],
+ "results": {
+  "0.8": {
+   "all": {
+    "onsets": 133,
+    "model_alert_before": 0.13533834586466165,
+    "model_median_lead_when_alerted": 50.0,
+    "nws_warning_exists": 0.7593984962406015,
+    "nws_warning_before": 0.556390977443609,
+    "nws_median_lead_when_before": 67.0,
+    "nws_median_lead_all_warned": 33.0,
+    "model_earlier": 0.07518796992481203,
+    "nws_earlier": 0.5413533834586466,
+    "neither": 0.38345864661654133,
+    "either": 0.6165413533834586
+   },
+   "monsoon": {
+    "onsets": 31,
+    "model_alert_before": 0.0967741935483871,
+    "model_median_lead_when_alerted": 55.0,
+    "nws_warning_exists": 0.7419354838709677,
+    "nws_warning_before": 0.5806451612903226,
+    "nws_median_lead_when_before": 14.5,
+    "nws_median_lead_all_warned": 11.0,
+    "model_earlier": 0.06451612903225806,
+    "nws_earlier": 0.5483870967741935,
+    "neither": 0.3870967741935484,
+    "either": 0.6129032258064516
+   },
+   "other": {
+    "onsets": 102,
+    "model_alert_before": 0.14705882352941177,
+    "model_median_lead_when_alerted": 45.0,
+    "nws_warning_exists": 0.7647058823529411,
+    "nws_warning_before": 0.5490196078431373,
+    "nws_median_lead_when_before": 88.0,
+    "nws_median_lead_all_warned": 61.5,
+    "model_earlier": 0.0784313725490196,
+    "nws_earlier": 0.5392156862745098,
+    "neither": 0.38235294117647056,
+    "either": 0.6176470588235294
+   },
+   "model_alert_rows": {
+    "alerts": 485,
+    "with_dust_within_60": 390,
+    "false_alert_ratio": 0.19587628865979378
+   }
+  },
+  "0.5": {
+   "all": {
+    "onsets": 133,
+    "model_alert_before": 0.40601503759398494,
+    "model_median_lead_when_alerted": 67.5,
+    "nws_warning_exists": 0.7593984962406015,
+    "nws_warning_before": 0.556390977443609,
+    "nws_median_lead_when_before": 67.0,
+    "nws_median_lead_all_warned": 33.0,
+    "model_earlier": 0.24060150375939848,
+    "nws_earlier": 0.47368421052631576,
+    "neither": 0.2857142857142857,
+    "either": 0.7142857142857143
+   },
+   "monsoon": {
+    "onsets": 31,
+    "model_alert_before": 0.25806451612903225,
+    "model_median_lead_when_alerted": 62.5,
+    "nws_warning_exists": 0.7419354838709677,
+    "nws_warning_before": 0.5806451612903226,
+    "nws_median_lead_when_before": 14.5,
+    "nws_median_lead_all_warned": 11.0,
+    "model_earlier": 0.22580645161290322,
+    "nws_earlier": 0.45161290322580644,
+    "neither": 0.3225806451612903,
+    "either": 0.6774193548387096
+   },
+   "other": {
+    "onsets": 102,
+    "model_alert_before": 0.45098039215686275,
+    "model_median_lead_when_alerted": 72.5,
+    "nws_warning_exists": 0.7647058823529411,
+    "nws_warning_before": 0.5490196078431373,
+    "nws_median_lead_when_before": 88.0,
+    "nws_median_lead_all_warned": 61.5,
+    "model_earlier": 0.24509803921568626,
+    "nws_earlier": 0.4803921568627451,
+    "neither": 0.27450980392156865,
+    "either": 0.7254901960784313
+   },
+   "model_alert_rows": {
+    "alerts": 1187,
+    "with_dust_within_60": 621,
+    "false_alert_ratio": 0.47683235046335304
+   }
+  }
+ },
+ "nws_warned_station_pairs": {
+  "pairs": 298,
+  "with_strict_dust": 134,
+  "no_dust_ratio": 0.5503355704697986
+ }
+}

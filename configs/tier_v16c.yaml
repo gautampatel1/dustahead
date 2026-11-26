@@ -1,0 +1,11 @@
+# Experiment config (v16c): v16 (strict targets + blowing-dust head) with the stations' current dust reports at any
+# severity as inputs (channels.dust_now). Tests whether weaker dust upstream, seen at t0, helps the STRICT benchmark.
+channels:
+  hrrr_fcst: 6
+  dust_now: 2
+model:
+  gate_channels: [static, physics]
+loss:
+  w_tier: 1.0
+  tier_vis_mi: 3.0
+  tier_pos_weight: 5.0

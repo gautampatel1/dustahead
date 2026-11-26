@@ -29,10 +29,16 @@ log("runner2 started; keep-awake " + ("on" if keep_awake(True) else "n/a"))
 while True:
     jobs = sorted(Q.glob("*.bat"), key=lambda p: p.stat().st_mtime)
     for job in jobs:
+        if not job.exists():            # removed or moved (e.g. to q2_skip) while an earlier job was running
+            continue
         target = DONE / job.name
         if target.exists():
             target = DONE / f"{job.stem}_{int(time.time())}.bat"
-        job.replace(target)
+        try:
+            job.replace(target)
+        except OSError as e:            # never let a vanished or locked file kill the runner
+            log(f"SKIP  {job.name}: {type(e).__name__}: {e}")
+            continue
         out = LOGS / f"{target.stem}.log"
         log(f"START {target.name} -> {out.name}")
         t = time.time()

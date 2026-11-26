@@ -1,0 +1,7 @@
+# v11f recipe (no hotspot), seed 7: the baseline arm of the three-seed comparison with v17.
+channels:
+  hrrr_fcst: 6
+model:
+  gate_channels: [static, physics]
+train:
+  seed: 7

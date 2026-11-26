@@ -1,0 +1,10 @@
+# Experiment config (v12): v8 recipe with the sky branch initialised from self-supervised masked-reconstruction
+# pre-training (scripts/15_pretrain.py -> runs/pretrain_mae_v1/unet.pt). Why: the supervised runs saturate after
+# 1-2 epochs for lack of onset examples; pre-training learns cloud and outflow structure from every stored input
+# frame without labels, so the dust head starts from features instead of noise. Learning rate halved so the
+# pre-trained features are refined, not overwritten, in the first epoch.
+model:
+  gate_channels: [static, physics]
+train:
+  init_unet_from: runs/pretrain_mae_v1/unet.pt
+  lr: 0.0005

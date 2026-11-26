@@ -57,11 +57,17 @@ def synthetic_sample(grid: Grid, rng: np.random.Generator, leads=(15, 30, 60), d
     n_st = 12
     si, sj = rng.integers(0, ny, n_st), rng.integers(0, nx, n_st)
     st_y = np.stack([y[li][si, sj] for li in range(len(leads))], 1).astype(np.int8)
-    from .sampler import N_FCST
+    from .sampler import N_FCST, N_RADAR
     xf = np.stack([x[47], x[48], x[49], x[50], rng.random((ny, nx), dtype=np.float32) * 0.5, x[49]])[:N_FCST]   # fake "forecast"
-    return dict(x=x.astype(np.float16), y=y.astype(np.uint8), w=w.astype(np.float16), xf=xf.astype(np.float16),
+    xr = np.stack([x[42 + k] for k in range(N_RADAR)]).clip(0, 1)                                                  # fake "radar"
+    return dict(x=x.astype(np.float16), y=y.astype(np.uint8), w=w.astype(np.float16), xf=xf.astype(np.float16), xr=xr.astype(np.float16),
                 st_ij=np.stack([si, sj], 1).astype(np.int16), st_y=st_y,
                 st_now=np.zeros(n_st, np.int8), t0=np.datetime64("2025-08-26T02:00"),
+                # fake station wind: strong where the synthetic outflow is (knots), a rising wind and a temperature drop
+                st_wnow=np.stack([wind10[si, sj] * 2.2, wind10[si, sj] - 3, -(wind10[si, sj] - 3) / 2], 1).astype(np.float32),
+                st_dvis=np.where(st_y == 1, 0.5, np.where(np.stack([y[li][np.clip(si + 2, 0, ny - 1), sj] for li in range(len(leads))], 1) == 1, 2.5, 99.0)).astype(np.float32),
+                st_dvis_now=np.full(n_st, 99.0, np.float32),     # fake blowing dust: also 2 cells south of the dust wall
+                st_wy=np.stack([wind10[si, sj] * (2.2 + 0.2 * li) for li in range(len(leads))], 1).astype(np.float32),
                 genesis=np.array(True), dust_rgb=np.zeros((ny, nx, 3), np.uint8))
 
 

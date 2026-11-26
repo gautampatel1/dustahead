@@ -1,0 +1,7 @@
+# v11f recipe (v14b without radar) on fold 1: the no-radar control for the pooled, paired radar comparison.
+channels:
+  hrrr_fcst: 6
+model:
+  gate_channels: [static, physics]
+splits:
+  val_fold: 1

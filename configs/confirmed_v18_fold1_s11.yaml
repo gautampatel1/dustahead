@@ -1,0 +1,13 @@
+# v18 (20 Nov): the v11f recipe trained with the STATION-CONFIRMED label version (label.variant) and the extra
+# station-confirmed event days of 2018-2024 (scripts/33, 34). The strict rule stays the main label version; this is a
+# parallel one, approved by Gautam on 20 Nov as an experiment. Seed 11, fold 1.
+channels:
+  hrrr_fcst: 6
+model:
+  gate_channels: [static, physics]
+label:
+  variant: station_confirmed
+train:
+  seed: 11
+splits:
+  val_fold: 1

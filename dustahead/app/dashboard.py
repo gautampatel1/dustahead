@@ -53,7 +53,7 @@ if args.demo:
     s = load_sample(ev_files[k])
     from dustahead.data.sampler import paint_station_now
     out = E.predict_array(s["x"].astype(np.float32), paint_station_now(s["st_ij"], s["st_now"], s["x"].shape[1:])[None],
-                          s["st_ij"], s["st_now"], xf=s.get("xf"))
+                          s["st_ij"], s["st_now"], xf=s.get("xf"), xr=s.get("xr"))
     out["t0"] = str(s["t0"])
     out["dust_rgb"] = s["dust_rgb"]
     out["station_ij"], out["station_now"] = s["st_ij"], s["st_now"]
@@ -68,7 +68,7 @@ else:
 
 li = E.leads.index(lead)
 probs, gate = out["probs"], out["gate"]
-alerts = out["alerts"] if not args.demo else E.road_alerts(probs, thr, genesis_map=out.get("genesis"))
+alerts = out["alerts"] if not args.demo else E.road_alerts(probs, None if thr == default_thr else thr, genesis_map=out.get("genesis"))   # slider untouched: tier policy
 
 
 def road_overlay(ax):
@@ -124,7 +124,9 @@ if view.startswith("Admin"):
         df = pd.DataFrame(alerts)
         df["p_max"] = df["p_max"].map(lambda v: f"{v:.2f}")
         df["genesis"] = df["genesis"].map(lambda g: "onset (no dust nearby)" if g else "dust already nearby")
-        st.dataframe(df[["segment", "lead_min", "p_max", "level", "genesis"] + (["held"] if "held" in df else [])], hide_index=True, use_container_width=True)
+        if "hit_rate" in df:
+            df["hit_rate"] = df["hit_rate"].map(lambda v: "not measured for this model" if v is None or pd.isna(v) else f"{v:.0%} of such alerts saw dust within 60 min")
+        st.dataframe(df[["segment", "lead_min", "p_max", "level", "genesis"] + [c for c in ("tier", "hit_rate", "held") if c in df]], hide_index=True, use_container_width=True)
     else:
         st.info("No segment above the alert threshold.")
 else:
@@ -133,9 +135,20 @@ else:
     if not alerts:
         st.success("No dust expected on I-10 in the next 60 minutes.")
     for a in alerts:
-        box = st.error if a["level"] == "severe" else st.warning
         when = "now" if a["lead_min"] <= 15 else f"in about {a['lead_min']} min"
-        box(f"### {a['segment']}\n**Dust {when}** · confidence {a['p_max']:.0%}"
-            + (" · forming, no station reports dust yet" if a.get("genesis") else " · dust already reported nearby")
-            + (" · holding" if a.get("held") else "")
-            + "\n\nPull aside, turn off lights, stay buckled, wait it out.")
+        hr = a.get("hit_rate")
+        if a.get("tier") == "new_storm":
+            # second tier: a possible new storm. Said plainly: most of these do not verify.
+            n = round(1 / hr) if hr else None
+            st.warning(f"### {a['segment']}\n**Dust possible {when}** · no station reports dust yet"
+                       + (f" · about 1 in {n} alerts like this is followed by dust within an hour" if n else "")
+                       + (" · holding" if a.get("held") else "")
+                       + "\n\nStay alert, check the official warning, be ready to slow down and pull off.")
+        else:
+            box = st.error if a["level"] == "severe" or a.get("tier") == "nearby" else st.warning
+            box(f"### {a['segment']}\n**Dust {when}** · confidence {a['p_max']:.0%}"
+                + (" · forming, no station reports dust yet" if a.get("genesis") else " · dust already reported nearby")
+                + (f" · about {round(hr * 5)} in 5 alerts like this are followed by dust within an hour" if hr else "")
+                + (" · holding" if a.get("held") else "")
+                + "\n\nPull aside, turn off lights, stay buckled, wait it out.")
+    st.caption("A research prototype. It does not replace National Weather Service warnings; when a Dust Storm Warning is in effect, follow it.")

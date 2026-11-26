@@ -1,0 +1,12 @@
+# FINAL model (v8full): the v8 recipe (static gate; paper model) trained on ALL labelled data before the test year -
+# 2018-2024 plus every 2025 event (no 2025 validation half). Why: 2025 was a record dust year (El Paso alone issued
+# 147 Dust Storm Warnings) and half of it was held back for validation. The epoch count is fixed from the validated
+# v8 run (best epoch 1 -> 2 epochs, same cosine schedule), so nothing is chosen on the test year.
+# Pre-registered 9 Nov 2026: v8full is the final paper model whatever its 2026 score; that score is a disclosed
+# second look at the test year (the first was v8 on 28 Oct).
+model:
+  gate_channels: [static, physics]
+splits:
+  val_fold: none
+train:
+  fixed_epochs: 2

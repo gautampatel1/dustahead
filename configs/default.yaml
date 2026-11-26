@@ -39,6 +39,13 @@ label:
   asos_report_types: [1, 2, 3]   # 5-minute, routine hourly, specials
   station_radius_km: 12  # pixels within this radius of a labelled station share its label
   genesis_radius_km: 50  # "genesis" case = no dust within 50 km at t0
+  ext_sources: [rwis]    # extended stations carried in the samples (events/synoptic.py): road-weather visibility only.
+  train_sources: [asos]  # ... but the LOSS sees only these (v13/v13a, 4 Nov: training on RWIS labels lowered skill
+                         # everywhere, on the RWIS stations included). RWIS stays an evaluation stratum + live input.
+                         # pm10 and vis_other were calibrated against co-located ASOS and agree 9 % / 0 % of the
+                         # time (results/pm10_calibration.json, 4 Nov) - they measure something else; not labels.
+  pm10_ugm3: 250         # PM10 rule (only used when pm10 is in ext_sources)
+  pm10_severe_ugm3: 1000
 
 splits:
   train: [2018, 2019, 2020, 2021, 2022, 2023, 2024]   # 2018-22 from GOES-16 (East), same sector; no ADP before 2020
@@ -93,12 +100,25 @@ eval:
   fss_windows: [3, 5, 9]
 
 product:                 # alert policy for the prototype (validated on the 2025 event split, see results/)
-  checkpoints: [runs/unet_all_v4/best.pt, runs/gated_unet_v4/best.pt, runs/gated_unet_v8/best.pt]   # element-wise max; v8 adds monsoon coverage
+  checkpoints: [runs/gated_unet_v8/best.pt]   # 19 Nov: v8 alone (was max of unet_all_v4, gated_unet_v4, v8). The ensemble added
+                                              # nothing on 2026, gated_unet_v4 collapsed there, and the tier hit rates are measured for v8
   thresholds: [0.80, 0.80, 0.80]          # per lead (+15, +30, +60): best-CSI thresholds of the max ensemble
   genesis_thresholds: [0.80, 0.80, 0.80]  # road cells with no dust-reporting station within 50 km (same for now)
   severe_margin: 0.10                     # "severe" when P exceeds the threshold by this much
   release_threshold: 0.50                 # an active alert is released only when P falls below this ...
   min_hold_steps: 3                       # ... and never before 3 forecasts (30 min) have passed
+  # Two alert tiers (19 Nov). Which tier a road segment gets is decided by an observation, not by the probability:
+  # is a station within 50 km reporting dust now? The two situations have very different reliability, measured on
+  # all 2025 validation events out of sample (v8, two folds, ASOS station-times; results/val_2025_eventsplit/README.md):
+  #   nearby     dust reported within 50 km: alerts at P >= 0.5 were followed by dust within 60 min 78 % of the time
+  #              and covered 87 % of the dust cases (at 0.8: the same 80 % hit rate but only 53 % covered)
+  #   new_storm  no dust within 50 km: alerts at P >= 0.3 verified 14 % of the time and covered 25 % of new storms
+  # The hit rates are shown to the user only when the product model is the one they were measured for.
+  tiers:
+    enabled: true
+    validated_for: [runs/gated_unet_v8/best.pt]
+    nearby:    {thresholds: [0.50, 0.50, 0.50], hit_rate: 0.78, coverage: 0.87}
+    new_storm: {thresholds: [0.30, 0.30, 0.30], hit_rate: 0.14, coverage: 0.25}
 
 publish:                 # scripts/30_publish.py -> web + phone apps (dustahead/app/bundle.py). Secrets: environment only
   out_dir: runs/publish                   # local publish root; mirrors what is uploaded to R2
