@@ -1,0 +1,27 @@
+{
+  "name": "dustahead-web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DustAhead live map: reads latest.json + P maps written by scripts/30_publish.py",
+  "scripts": {
+    "predev": "node tools/copy-maplibre-worker.mjs",
+    "dev": "next dev",
+    "prebuild": "node tools/copy-maplibre-worker.mjs",
+    "build": "next build",
+    "typecheck": "tsc --noEmit",
+    "serve": "python3 -m http.server 4173 --directory out",
+    "test": "node --test \"lib/*.test.ts\""
+  },
+  "dependencies": {
+    "maplibre-gl": "6.16.0",
+    "next": "16.4.6",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "typescript": "5.9.3"
+  }
+}
