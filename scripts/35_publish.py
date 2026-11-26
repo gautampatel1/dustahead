@@ -19,8 +19,13 @@ S3-compatible object store; t0 = forecast time (rounded down to 10 min).
             and Marana carrying dust north-west up I-10, a weaker area near Lordsburg) run through the real road
             segments, thresholds, genesis rule and AlertTracker. It is marked source = "fixture" and the apps label
             it as an illustration. It is for building the interface on a laptop, never for any result.
-Secrets come from the environment only: R2_ENDPOINT, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET for
---upload, and DUSTAHEAD_HC_URL (a Healthchecks.io ping URL) for the dead-man's switch.
+Secrets come from the environment: R2_ENDPOINT, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET for --upload, and
+DUSTAHEAD_HC_URL (a Healthchecks.io ping URL) for the dead-man's switch. They may also sit in .secrets/publish.env
+(KEY=value lines, gitignored; template configs/publish.env.example); variables already set in the environment win.
+
+--max-seconds (default 540 with --once) ends a live run that has not finished, so a stuck download can never block the
+next 10-minute run; it reports the failure to Healthchecks first. On the PC the run is scheduled every 10 minutes by
+scripts/windows/install_publish_task.bat (see RUNBOOK_WINDOWS.md, "Live forecasts for the apps").
 """
 from __future__ import annotations
 
@@ -45,6 +50,38 @@ STEP = dt.timedelta(minutes=10)
 
 
 # ---------------------------------------------------------------------------------------------- helpers
+def load_env_file(path: Path) -> list[str]:
+    """Read KEY=value lines into os.environ without overriding variables that are already set. Blank lines and
+    '#' comments are skipped; surrounding quotes are removed. Returns the names it set (never the values)."""
+    if not path.exists():
+        return []
+    set_now = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, val = line.split("=", 1)
+        key, val = key.strip(), val.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = val
+            set_now.append(key)
+    return set_now
+
+
+def start_watchdog(seconds: float) -> None:
+    """End the process after `seconds` (after telling Healthchecks), so a hung run can't block the next one."""
+    import threading
+
+    def fire():
+        msg = f"live run exceeded {seconds:.0f} s and was stopped"
+        print("[publish]", msg, flush=True)
+        heartbeat(False, msg)
+        os._exit(3)
+    t = threading.Timer(seconds, fire)
+    t.daemon = True
+    t.start()
+
+
 def heartbeat(ok: bool, msg: str = "") -> None:
     url = os.environ.get("DUSTAHEAD_HC_URL")
     if not url:
@@ -97,7 +134,13 @@ def engine_from(args, cfg) -> DustAhead:
 # ---------------------------------------------------------------------------------------------- modes
 def publish_live(args, cfg, out: Path) -> None:
     from dustahead.app import nws
-    E = engine_from(args, cfg)
+    try:
+        E = engine_from(args, cfg)
+    except Exception:  # noqa: BLE001  - e.g. a missing checkpoint: report it, or the apps just go quiet
+        tb = traceback.format_exc()
+        print(tb)
+        heartbeat(False, "could not load the model\n" + tb)
+        sys.exit(1)
 
     def once():
         t_start = time.time()
@@ -222,7 +265,12 @@ def main() -> None:
     ap.add_argument("--out", default=None, help="publish root (default: publish.out_dir, or web/public/demo for --fixture)")
     ap.add_argument("--upload", action="store_true", help="upload to R2 (credentials from the environment)")
     ap.add_argument("--frames", type=int, default=9, help="--fixture: number of 10-min forecasts")
+    ap.add_argument("--env-file", default=str(ROOT / ".secrets" / "publish.env"), help="KEY=value secrets file")
+    ap.add_argument("--max-seconds", type=float, default=None, help="--live --once: stop a run after this long (default 540)")
     args = ap.parse_args()
+    loaded = load_env_file(Path(args.env_file))
+    if loaded:
+        print(f"[publish] read {', '.join(sorted(loaded))} from {Path(args.env_file).name}")
     cfg = load_config(args.config)
     pub = cfg.get("publish", {})
     if args.fixture:
@@ -237,6 +285,10 @@ def main() -> None:
         if args.once == args.loop:
             ap.error("--live needs exactly one of --once / --loop")
         out = Path(args.out or ROOT / pub.get("out_dir", "runs/publish"))
+        if args.upload and not all(os.environ.get(k) for k in ("R2_ENDPOINT", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_BUCKET")):
+            ap.error("--upload needs R2_ENDPOINT, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY and R2_BUCKET (environment or --env-file)")
+        if args.once:
+            start_watchdog(args.max_seconds or 540)
         publish_live(args, cfg, out)
 
 

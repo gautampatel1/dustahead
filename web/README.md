@@ -68,8 +68,8 @@ chance of dust at that time:
 
 1. Create the bucket and turn on its public URL (or a custom domain).
 2. Add a CORS rule allowing `GET` from the site's origin. MapLibre fetches the PNGs with CORS.
-3. On the PC, put `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET` and `DUSTAHEAD_HC_URL` in the environment (never in the repo).
-4. Schedule `python scripts/35_publish.py --live --once --upload` every 10 minutes, at :02, :12 and so on.
+3. On the PC, put `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET` and `DUSTAHEAD_HC_URL` in `.secrets\publish.env` (template: `configs/publish.env.example`; gitignored, never in the repo).
+4. On the PC, run `scripts\windows\install_publish_task.bat`. It schedules `35_publish.py --live --once --upload` every 10 minutes at :02, :12 and so on. See `RUNBOOK_WINDOWS.md`, "Live forecasts for the apps".
 5. Build the site with `NEXT_PUBLIC_DATA_URL` set, then upload `out/` to the same bucket or any static host.
 
 ## Notes
