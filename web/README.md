@@ -1,6 +1,6 @@
 # DustAhead web app
 
-A plain, light website with five tabs: Map, Road conditions (route check and a table of every stretch), Warnings (NWS),
+A plain, light website with five tabs: Map, Road conditions ("Your drive" trip timing and a table of every stretch), Warnings (NWS),
 Safety and About (how it works, accuracy, limits, data sources, and forecast status). It's a static Next.js site: no
 server and no API.
 It reads the files that `scripts/35_publish.py` writes.
@@ -17,6 +17,7 @@ cd web && npm install
 npm run dev                     # http://localhost:3000, plays the illustrative fixture in public/demo
 npm run build                   # static export into out/
 npm run serve                   # serve out/ on http://localhost:4173
+npm test                        # drive timing and display rules (Node's built-in test runner)
 ```
 
 Regenerate the fixture after changing the bundle format. It needs no model and no data:
@@ -48,6 +49,20 @@ Build-time settings, all optional:
 - **Stale is unknown, never clear.** The age is worked out from `t0` on the viewer's clock. After `policy.stale_after_min` (25 min) the map turns grey, every segment shows "No data", and the panel says it is not an all-clear.
 - **Official warnings first.** Active NWS dust products are shown whatever the model says. `nws: null` means the feed could not be read, and the app says so.
 - **Two alert tiers, with measured hit rates** (`product.tiers` on main). "Nearby" (a station within 50 km reports dust, alert at P ≥ 0.5) shows as Watch/Severe; "new storm" (none does, P ≥ 0.3) shows as "Dust possible". Alert details say how often each tier came true on 2025 validation (78 % and 14 %), but only when `policy.tiers.rated` is true, i.e. the product model is the one the rates were measured for.
+
+## Your drive
+
+Road conditions starts with a trip planner (`lib/drive.ts`, `components/Drive.tsx`). Pick a start (or "Start from
+where I am"), a destination, when you leave and a speed. For each stretch it gives the time you'd get there and the
+chance of dust at that time:
+- **Distances** are the bundle's `miles` per stretch, taken from exit numbers and including state-line crossings.
+- **Chance on a stretch** is read from the forecast maps at the times you're on it, interpolated between +15, +30
+  and +60. Before +15 the +15 map is used.
+- **After +60** a stretch shows "After the forecast hour: check again", never clear.
+- **Advice:** the first stretch whose chance reaches its tier's alert threshold gives "plan to stop before <town>
+  (exit N)".
+- **Location** is used once, only to pick the nearest town, and stays in the browser. Choices are remembered in
+  `localStorage`.
 
 ## Hosting on R2
 

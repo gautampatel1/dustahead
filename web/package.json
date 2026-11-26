@@ -9,7 +9,8 @@
     "prebuild": "node tools/copy-maplibre-worker.mjs",
     "build": "next build",
     "typecheck": "tsc --noEmit",
-    "serve": "python3 -m http.server 4173 --directory out"
+    "serve": "python3 -m http.server 4173 --directory out",
+    "test": "node --test \"lib/*.test.ts\""
   },
   "dependencies": {
     "maplibre-gl": "6.16.0",

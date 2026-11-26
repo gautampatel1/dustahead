@@ -209,8 +209,26 @@ button, select, input { font: inherit; color: inherit; }
   .updated { order: 3; }
   .doc { padding: 16px; }
   .route-form select { min-width: 0; width: 100%; }
-  .route-form label { flex: 1; }
+  .route-form { display: grid; grid-template-columns: 1fr 1fr; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+
+/* ---------- your drive */
+.loc-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; font-size: 14px; }
+.drive-meta { font-size: 14px; margin: 6px 0 8px; }
+.drive-legs { list-style: none; margin: 0; padding: 0; }
+.drive-legs button { width: 100%; display: grid; grid-template-columns: 78px 34px 1fr auto; align-items: center; gap: 10px; padding: 9px 6px;
+  background: none; border: 0; border-bottom: 1px solid var(--line); cursor: pointer; text-align: left; }
+.drive-legs li:last-child button { border-bottom: 0; }
+.drive-legs button:hover { background: #fafbfa; }
+.drive-legs li.danger button { background: var(--severe-bg); }
+.dl-time { font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.dl-name { display: flex; flex-direction: column; min-width: 0; }
+.dl-name small { font-size: 13px; color: var(--muted); }
+.drive-legs li.danger .dl-name small { color: #a3201d; font-weight: 600; }
+@media (max-width: 900px) {
+  .drive-legs button { grid-template-columns: 76px minmax(0, 1fr); }
+  .drive-legs .state-line, .drive-legs .badge { display: none; }
 }

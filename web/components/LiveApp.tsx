@@ -221,7 +221,7 @@ export default function LiveApp() {
             } : null} />
           </div>
         )}
-        {b && tab === "roads" && <RoadsTab b={b} states={states} stale={stale} t={t} onOpen={openSegment} />}
+        {b && tab === "roads" && <RoadsTab b={b} states={states} stale={stale} now={now} t={t} lang={lang} tz={tz} onOpen={openSegment} />}
         {b && tab === "warnings" && <WarningsTab b={b} active={activeNws} t={t} lang={lang} tz={tz} />}
         {tab === "safety" && <SafetyTab t={t} />}
         {tab === "about" && <AboutTab b={b} stale={stale} age={age} t={t} lang={lang} tz={tz} />}

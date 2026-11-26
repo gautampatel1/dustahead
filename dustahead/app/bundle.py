@@ -48,6 +48,16 @@ def segment_id(k: int) -> str:
     return f"i10-{s0.lower()}-{m0}-{m1}" if s0 == s1 else f"i10-{s0.lower()}{m0}-{s1.lower()}{m1}"
 
 
+# I-10 milepost at which each state ends going east (AZ -> NM, NM -> TX); mileposts restart at 0 in the next state.
+STATE_END_MP = {"AZ": 391, "NM": 164}
+
+
+def segment_miles(s0: str, m0: int, s1: str, m1: int) -> int:
+    """Road miles between two exits: the milepost difference, or across a state line the rest of the first state
+    plus the milepost reached in the next. The apps use this to time a drive."""
+    return m1 - m0 if s0 == s1 else (STATE_END_MP[s0] - m0) + m1
+
+
 def segment_table() -> list[dict]:
     """Static description of every segment, in the order of DustAhead.road_cells()."""
     segs = []
@@ -55,7 +65,7 @@ def segment_table() -> list[dict]:
         (s0, m0), (s1, m1) = I10_MP[k], I10_MP[k + 1]
         segs.append(dict(id=segment_id(k), name=f"{I10_NAMES[k]} → {I10_NAMES[k + 1]}", from_=I10_NAMES[k],
                          to=I10_NAMES[k + 1], state=s0 if s0 == s1 else f"{s0}/{s1}", mp=[m0, m1],
-                         line=[list(I10[k]), list(I10[k + 1])]))
+                         miles=segment_miles(s0, m0, s1, m1), line=[list(I10[k]), list(I10[k + 1])]))
     return segs
 
 

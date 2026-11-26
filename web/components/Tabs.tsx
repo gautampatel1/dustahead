@@ -1,58 +1,22 @@
 "use client";
 /** The other tabs: road conditions (route check + full table), NWS warnings, safety advice, about + forecast status. */
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { alertThreshold, type Bundle, type NwsProduct, type RoadState } from "@/lib/bundle";
 import { clockShort, dateLong, type Copy, type Lang } from "@/lib/i18n";
-import { Badge, StateLine } from "./MapTab";
+import DriveCard from "./Drive";
+import { Badge } from "./MapTab";
 
 // ------------------------------------------------------------------------------------------- road conditions
-export function RoadsTab({ b, states, stale, t, onOpen }: {
-  b: Bundle; states: Record<string, RoadState>; stale: boolean; t: Copy; onOpen: (id: string) => void;
+export function RoadsTab({ b, states, stale, now, t, lang, tz, onOpen }: {
+  b: Bundle; states: Record<string, RoadState>; stale: boolean; now: number; t: Copy; lang: Lang; tz?: string;
+  onOpen: (id: string) => void;
 }) {
-  const towns = useMemo(() => [b.segments[0].from, ...b.segments.map((s) => s.to)], [b]);
-  const [from, setFrom] = useState(towns.indexOf("Phoenix") >= 0 ? towns.indexOf("Phoenix") : 0);
-  const [to, setTo] = useState(towns.indexOf("Tucson") >= 0 ? towns.indexOf("Tucson") : towns.length - 1);
   const [onlyAlerts, setOnlyAlerts] = useState(false);
-  const lo = Math.min(from, to), hi = Math.max(from, to);
-  const route = b.segments.slice(lo, hi);
-  const hit = route.filter((s) => states[s.id] !== "clear").length;
   const rows = b.segments.filter((s) => !onlyAlerts || states[s.id] !== "clear");
 
   return (
     <div className="doc">
-      <section className="card">
-        <h2>{t.routeTitle}</h2>
-        <div className="route-form">
-          <label>{t.from}
-            <select value={from} onChange={(e) => setFrom(Number(e.target.value))}>
-              {towns.map((n, i) => <option key={n} value={i}>{n}</option>)}
-            </select>
-          </label>
-          <label>{t.to}
-            <select value={to} onChange={(e) => setTo(Number(e.target.value))}>
-              {towns.map((n, i) => <option key={n} value={i}>{n}</option>)}
-            </select>
-          </label>
-        </div>
-        {from !== to && (
-          <>
-            <p className={`route-result ${stale ? "grey" : hit ? "warn" : "ok"}`}>
-              {stale ? t.routeStale(towns[from], towns[to]) : hit ? t.routeSome(towns[from], towns[to], hit, route.length) : t.routeClear(towns[from], towns[to])}
-            </p>
-            <ol className="route-strip">
-              {(from <= to ? route : [...route].reverse()).map((s) => (
-                <li key={s.id}>
-                  <button type="button" onClick={() => onOpen(s.id)}>
-                    <StateLine state={states[s.id]} />
-                    <span>{from <= to ? s.name : `${s.to} → ${s.from}`}</span>
-                    <Badge state={states[s.id]} t={t} />
-                  </button>
-                </li>
-              ))}
-            </ol>
-          </>
-        )}
-      </section>
+      <DriveCard b={b} states={states} stale={stale} now={now} t={t} lang={lang} tz={tz} onOpen={onOpen} />
 
       <section className="card">
         <div className="card-head">

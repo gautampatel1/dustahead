@@ -42,6 +42,15 @@ def test_waypoints_are_the_named_exits():
     assert [e[2] for e in I10_EXITS if e[1] == "AZ"] == sorted(e[2] for e in I10_EXITS if e[1] == "AZ")
 
 
+def test_segment_miles_follow_mileposts_across_state_lines():
+    segs = {s["id"]: s for s in B.segment_table()}
+    assert segs["i10-az-208-219"]["miles"] == 11                    # Eloy -> Picacho Peak
+    assert segs["i10-az378-nm22"]["miles"] == (391 - 378) + 22      # San Simon -> Lordsburg crosses into NM
+    assert segs["i10-nm162-tx19"]["miles"] == (164 - 162) + 19      # Anthony -> El Paso crosses into TX
+    total = sum(s["miles"] for s in segs.values())
+    assert 390 + 164 + 15 < total < 391 + 164 + 20                  # Ehrenberg to downtown El Paso, about 570 mi
+
+
 def test_png_rows_are_north_up_and_mercator(engine):
     g = engine.grid
     rows = B.mercator_rows(g)

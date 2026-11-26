@@ -18,6 +18,7 @@ export interface Segment {
   to: string;
   state: string; // AZ, NM, TX or AZ/NM
   mp: [number, number];
+  miles?: number; // road miles (from exit numbers, across state lines too); bundles before 26 Nov lack it
   line: [number, number][];
   p: number[]; // max P along the segment at each lead
   genesis: boolean; // no station within 50 km reports dust now
