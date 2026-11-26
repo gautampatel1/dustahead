@@ -116,4 +116,13 @@ def test_nws_parse_keeps_dust_products_in_the_domain():
          "geometry": None},
     ]}
     [w] = nws.parse(fc)
-    assert w["type"] == "Dust Storm Warning" and ".DS.W." in w["vtec"] and w["polygon"] is not None
+    assert w["type"] == "Dust Storm Warning" and ".DS.W." in w["vtec"] and len(w["polygons"]) == 1
+
+
+def test_nws_rings_handle_multipolygons_and_thin_long_outlines():
+    square = [[-111.0, 32.0], [-110.0, 32.0], [-110.0, 33.0], [-111.0, 33.0], [-111.0, 32.0]]
+    long_ring = [[-111 + k / 1000, 32.0] for k in range(1000)] + [[-111.0, 32.0]]
+    assert nws.rings({"type": "MultiPolygon", "coordinates": [[square], [square]]}) == [square, square]
+    [thin] = nws.rings({"type": "Polygon", "coordinates": [long_ring]})
+    assert len(thin) <= 152 and thin[0] == thin[-1]
+    assert nws.rings(None) == []

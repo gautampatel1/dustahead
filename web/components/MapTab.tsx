@@ -1,7 +1,8 @@
 "use client";
 /** Map tab: the map, a 15/30/60-minute switch, the road alert list, a segment's details, and station reports. */
 import dynamic from "next/dynamic";
-import { STATE_RANK, STATION_NAMES, alertThreshold, oneIn, warningsFor, type Alert, type Loaded, type RoadState } from "@/lib/bundle";
+import { useEffect, useState } from "react";
+import { STATE_RANK, STATION_NAMES, alertThreshold, oneIn, unplacedWarnings, warningsFor, type Alert, type Loaded, type RoadState } from "@/lib/bundle";
 import { clockShort, type Copy, type Lang } from "@/lib/i18n";
 import { ROAD_COLOR } from "./MapView";
 
@@ -15,7 +16,7 @@ interface ReplayCtl {
 interface Props {
   cur: Loaded; states: Record<string, RoadState>; rings: string[]; stale: boolean; age: number;
   lead: number; setLead: (m: number) => void; selected: string | null; setSelected: (id: string | null) => void;
-  t: Copy; lang: Lang; tz?: string; reduceMotion: boolean; replay: ReplayCtl | null;
+  t: Copy; lang: Lang; tz?: string; reduceMotion: boolean; replay: ReplayCtl | null; visible: boolean;
 }
 
 export function StateLine({ state }: { state: RoadState }) {
@@ -30,6 +31,33 @@ export function StateLine({ state }: { state: RoadState }) {
 
 export function Badge({ state, t }: { state: RoadState; t: Copy }) {
   return <span className={`badge s-${state}`}>{t.state[state]}</span>;
+}
+
+/** Map key: every road state, the two station markers, the NWS outline and the dust scale. Open by default on wide
+ *  screens; on a phone it folds to one "Map key" line so it doesn't cover the storm. */
+function Legend({ t }: { t: Copy }) {
+  const [open, setOpen] = useState(true);
+  useEffect(() => {
+    try { if (window.matchMedia("(max-width: 900px)").matches) setOpen(false); } catch { /* old browser */ }
+  }, []);
+  return (
+    <details className="legend" open={open} onToggle={(e) => setOpen((e.target as HTMLDetailsElement).open)}>
+      <summary>{t.mapKey}</summary>
+      <div className="legend-row">
+        {(["severe", "watch", "early", "held", "clear", "unknown"] as const).map((k) => (
+          <span key={k}><StateLine state={k} />{t.state[k]}</span>
+        ))}
+      </div>
+      <div className="legend-row">
+        <span><i className="dia dust" aria-hidden="true" />{t.keyStationDust}</span>
+        <span><i className="dia clear" aria-hidden="true" />{t.keyStationClear}</span>
+        <span><i className="key-nws" aria-hidden="true" />{t.keyNws}</span>
+      </div>
+      <div className="legend-row ramp-row">
+        <span>{t.legendChance}</span><span className="ramp-txt">{t.low}</span><i className="ramp" /><span className="ramp-txt">{t.high}</span>
+      </div>
+    </details>
+  );
 }
 
 export default function MapTab(p: Props) {
@@ -48,17 +76,9 @@ export default function MapTab(p: Props) {
       <section className="map-area">
         <div className="map-wrap">
           <MapView loaded={cur} minute={p.lead} states={states} selected={p.selected} rings={p.rings} stale={stale}
-            reduceMotion={p.reduceMotion} onSelect={p.setSelected} />
-          <div className="legend" aria-hidden="true">
-            <div className="legend-row">
-              {(["severe", "watch", "early", "held"] as const).map((k) => (
-                <span key={k}><StateLine state={k} />{t.state[k]}</span>
-              ))}
-            </div>
-            <div className="legend-row ramp-row">
-              <span>{t.legendChance}</span><span className="ramp-txt">{t.low}</span><i className="ramp" /><span className="ramp-txt">{t.high}</span>
-            </div>
-          </div>
+            reduceMotion={p.reduceMotion} visible={p.visible} onSelect={p.setSelected}
+            stationLabels={{ dust: t.stationDustNow, clear: t.stationClearNow }} />
+          <Legend t={t} />
         </div>
 
         <div className="lead-bar">
@@ -165,6 +185,9 @@ function SegmentDetails({ seg, state, alert, cur, t, onBack }: {
         <div><dt>{t.reportedNearby}</dt><dd>{seg.genesis ? t.no : t.yes}</dd></div>
         <div><dt>{t.nwsWarning}</dt><dd>{b.nws === null ? t.unavailable : warn.length ? warn.map((w) => w.type).join(", ") : t.none}</dd></div>
       </dl>
+      {unplacedWarnings(b.nws).map((w, i) => (
+        <p key={i} className="details-rel rel-low">{t.mayApply(w.type, w.area)}</p>
+      ))}
     </section>
   );
 }

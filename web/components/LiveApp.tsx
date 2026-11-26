@@ -43,6 +43,7 @@ export default function LiveApp() {
   const [replayInfo, setReplayInfo] = useState<Replay | null>(null);
   const [idx, setIdx] = useState(0);
   const [failed, setFailed] = useState(false);
+  const [online, setOnline] = useState(true);
   const [lead, setLead] = useState(15);
   const [replaying, setReplaying] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
@@ -93,6 +94,15 @@ export default function LiveApp() {
     document.addEventListener("visibilitychange", vis);
     return () => { alive = false; clearInterval(iv); document.removeEventListener("visibilitychange", vis); };
   }, [setup]);
+
+  // the browser's own connection state; together with a failed poll it drives the offline notice
+  useEffect(() => {
+    const up = () => setOnline(navigator.onLine);
+    up();
+    window.addEventListener("online", up);
+    window.addEventListener("offline", up);
+    return () => { window.removeEventListener("online", up); window.removeEventListener("offline", up); };
+  }, []);
 
   useEffect(() => {
     const iv = setInterval(() => setWall(Date.now()), 15_000);
@@ -183,6 +193,11 @@ export default function LiveApp() {
         </nav>
       </header>
 
+      {b && isLive && !stale && (failed || !online) && (
+        <div className="notice offline" role="status">
+          <strong>{online ? t.cantReach : t.offline}</strong> {t.showingOld(clockShort(b.t0, lang, tz), Math.round(age))}
+        </div>
+      )}
       {b && b.source === "fixture" && <div className="notice demo">{t.demoFixture}</div>}
       {b && b.source === "replay" && <div className="notice demo">{t.demoReplay(replayInfo?.title ?? "")}</div>}
       {b && activeNws.length > 0 && tab !== "warnings" && (
@@ -195,14 +210,16 @@ export default function LiveApp() {
 
       <main className={`page page-${tab}`}>
         {!b && <div className="empty-page">{failed ? t.loadFail : t.loading}</div>}
-        {b && tab === "map" && (
-          <MapTab cur={cur} states={states} rings={rings} stale={stale} age={age} lead={lead} setLead={setLead}
+        {b && (
+          <div hidden={tab !== "map"}>
+          <MapTab visible={tab === "map"} cur={cur} states={states} rings={rings} stale={stale} age={age} lead={lead} setLead={setLead}
             selected={selected} setSelected={setSelected} t={t} lang={lang} tz={tz} reduceMotion={reduceMotion}
             replay={!isLive && frames.length > 1 ? {
               frames, idx, setIdx: (i: number) => { setReplaying(false); setIdx(i); }, playing: replaying,
               toggle: () => { if (idx >= frames.length - 1) setIdx(0); setReplaying((v) => !v); },
               simStale, toggleStale: () => setSimStale((v) => !v),
             } : null} />
+          </div>
         )}
         {b && tab === "roads" && <RoadsTab b={b} states={states} stale={stale} t={t} onOpen={openSegment} />}
         {b && tab === "warnings" && <WarningsTab b={b} active={activeNws} t={t} lang={lang} tz={tz} />}

@@ -8,10 +8,10 @@
  * Roads: drawn from the worker's decision. State changes the line itself (width, dash, colour) so it reads in glare
  * and without colour vision. A segment that turns severe sends out one ring, once.
  */
-import { Map as MLMap, NavigationControl, setWorkerUrl, type GeoJSONSource, type ImageSource, type LayerSpecification, type MapLayerMouseEvent } from "maplibre-gl";
+import { Map as MLMap, NavigationControl, Popup, setWorkerUrl, type GeoJSONSource, type ImageSource, type LayerSpecification, type MapLayerMouseEvent } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { useEffect, useRef } from "react";
-import { layerWeights, resolve, type Loaded, type RoadState } from "@/lib/bundle";
+import { STATION_NAMES, layerWeights, resolve, ringsOf, type Loaded, type RoadState } from "@/lib/bundle";
 
 const STYLE = process.env.NEXT_PUBLIC_BASEMAP_STYLE || "https://tiles.openfreemap.org/styles/positron";
 const VIEW: [[number, number], [number, number]] = [[-114.9, 31.55], [-106.2, 33.95]];
@@ -31,6 +31,8 @@ interface Props {
   rings: string[];
   stale: boolean;
   reduceMotion: boolean;
+  visible: boolean;
+  stationLabels: { dust: string; clear: string };
   onSelect: (id: string | null) => void;
 }
 
@@ -61,15 +63,17 @@ function frameAlerts(m: MLMap, L: Loaded) {
     { padding: { top: 56, bottom: 72, left: 28, right: 28 }, maxZoom: 8.5, duration: 0 });
 }
 
-export default function MapView({ loaded, minute, states, selected, rings, stale, reduceMotion, onSelect }: Props) {
+export default function MapView({ loaded, minute, states, selected, rings, stale, reduceMotion, visible, stationLabels, onSelect }: Props) {
   const box = useRef<HTMLDivElement>(null);
   const map = useRef<MLMap | null>(null);
   const ready = useRef(false);
   const active = useRef<0 | 1>(0);       // which buffer holds the current forecast
   const blend = useRef(1);               // 0..1 progress of the cross-fade into the active buffer
   const shownT0 = useRef<string | null>(null);
-  const props = useRef({ loaded, minute, states, selected, rings, stale, reduceMotion, onSelect });
-  props.current = { loaded, minute, states, selected, rings, stale, reduceMotion, onSelect };
+  const props = useRef({ loaded, minute, states, selected, rings, stale, reduceMotion, visible, stationLabels, onSelect });
+  props.current = { loaded, minute, states, selected, rings, stale, reduceMotion, visible, stationLabels, onSelect };
+  const framed = useRef(false);          // first view set (only possible once the map is visible and has a size)
+  const popup = useRef<Popup | null>(null);
 
   function corners(b: Loaded["bundle"]): [[number, number], [number, number], [number, number], [number, number]] {
     const [w, s, e, n] = b.bounds;
@@ -87,7 +91,7 @@ export default function MapView({ loaded, minute, states, selected, rings, stale
         const id = `p${lead}${tag}`;
         if (!m.getLayer(id)) return;
         const mine = bi === active.current ? blend.current : 1 - blend.current;
-        m.setPaintProperty(id, "raster-opacity", w[k] * mine * scale);
+        m.setPaintProperty(id, "raster-opacity", Math.min(1, Math.max(0, w[k] * mine * scale)));
       });
     });
   }
@@ -120,13 +124,12 @@ export default function MapView({ loaded, minute, states, selected, rings, stale
     const { loaded: L } = props.current;
     return {
       type: "FeatureCollection" as const,
-      features: (L.bundle.nws ?? [])
-        .filter((w) => w.polygon)
-        .map((w) => ({
+      features: (L.bundle.nws ?? []).flatMap((w) =>
+        ringsOf(w).map((ring) => ({
           type: "Feature" as const,
           properties: { type: w.type },
-          geometry: { type: "Polygon" as const, coordinates: [w.polygon!] },
-        })),
+          geometry: { type: "Polygon" as const, coordinates: [ring] },
+        }))),
     };
   }
 
@@ -152,7 +155,9 @@ export default function MapView({ loaded, minute, states, selected, rings, stale
       const t0 = performance.now();
       blend.current = 0;
       const step = (now: number) => {
-        blend.current = Math.min(1, (now - t0) / 650);
+        // rAF timestamps can be a little earlier than performance.now(), so clamp: an opacity below 0 makes MapLibre
+        // throw, which used to stop the fade part-way and leave the dust layer half visible
+        blend.current = Math.min(1, Math.max(0, (now - t0) / 650));
         applyOpacity();
         if (blend.current < 1) requestAnimationFrame(step);
       };
@@ -227,18 +232,33 @@ export default function MapView({ loaded, minute, states, selected, rings, stale
         layout: { "icon-image": ["get", "icon"], "icon-allow-overlap": true, "symbol-sort-key": ["get", "dust"] } });
 
       m.on("click", "road-hit", (e: MapLayerMouseEvent) => {
+        if (m.queryRenderedFeatures(e.point, { layers: ["stations"] }).length) return;   // a station tap wins
         const id = e.features?.[0]?.properties?.id as string | undefined;
         if (id) props.current.onSelect(id);
       });
       m.on("mouseenter", "road-hit", () => { m.getCanvas().style.cursor = "pointer"; });
       m.on("mouseleave", "road-hit", () => { m.getCanvas().style.cursor = ""; });
+      // stations: tap or click for the name and what it reports (text only: no HTML from the data reaches the page)
+      m.on("click", "stations", (e: MapLayerMouseEvent) => {
+        const f = e.features?.[0];
+        if (!f) return;
+        const id = String(f.properties?.id ?? "");
+        const lab = props.current.stationLabels;
+        const text = `${STATION_NAMES[id] ?? id} (${id}): ${f.properties?.dust ? lab.dust : lab.clear}`;
+        popup.current?.remove();
+        popup.current = new Popup({ closeButton: false, offset: 10 })
+          .setLngLat((f.geometry as GeoJSON.Point).coordinates as [number, number]).setText(text).addTo(m);
+      });
+      m.on("mouseenter", "stations", () => { m.getCanvas().style.cursor = "pointer"; });
+      m.on("mouseleave", "stations", () => { m.getCanvas().style.cursor = ""; });
 
       ready.current = true;
-      frameAlerts(m, L);
+      m.setFilter("road-sel", ["==", ["get", "id"], props.current.selected ?? ""]);
+      if (props.current.visible) { frameAlerts(m, L); framed.current = true; }
       showBundle();
       applyOpacity();
     });
-    return () => { ready.current = false; m.remove(); map.current = null; shownT0.current = null; };
+    return () => { ready.current = false; framed.current = false; m.remove(); map.current = null; shownT0.current = null; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -255,11 +275,27 @@ export default function MapView({ loaded, minute, states, selected, rings, stale
     (m.getSource("road") as GeoJSONSource | undefined)?.setData(roadData());
   }, [states, loaded]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ---- selection: outline it, and bring it into view when it was opened from a list and is off-screen
   useEffect(() => {
     const m = map.current;
     if (!m || !ready.current) return;
     m.setFilter("road-sel", ["==", ["get", "id"], selected ?? ""]);
-  }, [selected]);
+    const seg = selected ? props.current.loaded.bundle.segments.find((s) => s.id === selected) : undefined;
+    if (!seg || !visible) return;
+    const view = m.getBounds();
+    if (seg.line.every((p) => view.contains(p))) return;
+    const lon = seg.line.map((p) => p[0]), lat = seg.line.map((p) => p[1]);
+    m.fitBounds([[Math.min(...lon), Math.min(...lat)], [Math.max(...lon), Math.max(...lat)]],
+      { padding: 80, maxZoom: 9, duration: props.current.reduceMotion ? 0 : 700 });
+  }, [selected, visible]);
+
+  // ---- the map stays mounted while other tabs show; it was hidden, so re-measure the canvas when it returns
+  useEffect(() => {
+    const m = map.current;
+    if (!visible || !m) return;
+    m.resize();
+    if (ready.current && !framed.current) { frameAlerts(m, props.current.loaded); framed.current = true; }
+  }, [visible]);
 
   // ---- one ring per segment that just turned severe
   useEffect(() => {
@@ -269,7 +305,7 @@ export default function MapView({ loaded, minute, states, selected, rings, stale
     const t0 = performance.now();
     let raf = 0;
     const step = (now: number) => {
-      const u = Math.min(1, (now - t0) / 1400);
+      const u = Math.min(1, Math.max(0, (now - t0) / 1400));
       const ease = 1 - Math.pow(1 - u, 3);
       m.setPaintProperty("road-ring", "line-width", 6 + 26 * ease);
       m.setPaintProperty("road-ring", "line-opacity", 0.75 * (1 - u));

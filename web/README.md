@@ -40,6 +40,7 @@ Build-time settings, all optional:
 - `NEXT_PUBLIC_DATA_URL`: the public R2 URL. When it's set, `/` shows the live forecast.
 - `NEXT_PUBLIC_BASEMAP_STYLE`: a MapLibre style URL. The default is OpenFreeMap "positron" (light grey), which needs no key. A self-hosted Protomaps style works here too.
 - `NEXT_PUBLIC_BASE_PATH`: set this when the site lives under a sub-path.
+- `NEXT_PUBLIC_SITE_URL`: the site's public address (e.g. `https://dustahead.example.org`), used for the image in link previews. Without it, previews show text only.
 
 ## Rules the app keeps
 
@@ -60,4 +61,8 @@ Build-time settings, all optional:
 
 - MapLibre GL JS 6 loads its worker from a URL. `tools/copy-maplibre-worker.mjs` copies the worker into `public/maplibre/` before `dev` and `build`.
 - Motion turns off under `prefers-reduced-motion`.
+- The free OpenFreeMap basemap can be slow: on 26 Nov a low-zoom tile was ~200 kB and ~1 s, and MapLibre decodes those
+  tiles in the same worker as our roads, so in dev mode the roads took up to ~20 s to appear (about 3 s in the
+  production build). For the demo, host a Protomaps extract of the domain on R2 and set `NEXT_PUBLIC_BASEMAP_STYLE`.
+- Add to home screen: `app/manifest.ts` and the icons in `public/icons/` make the site installable on phones.
 - The Spanish copy has not been reviewed by a native speaker yet.

@@ -44,6 +44,8 @@ button, select, input { font: inherit; color: inherit; }
 
 .notice { display: flex; align-items: center; gap: 8px; padding: 9px 20px; font-size: 14px; border-bottom: 1px solid var(--line); text-decoration: none; }
 .notice.demo { background: var(--early-bg); color: #1d4677; }
+.notice.offline { display: block; background: var(--unknown-bg); color: var(--ink); }
+.notice.offline strong { margin-right: 4px; }
 .notice.nws { background: var(--watch-bg); color: #6b4700; font-weight: 600; }
 .notice.nws svg { width: 15px; height: 15px; color: var(--watch); flex: none; }
 
@@ -59,8 +61,11 @@ button, select, input { font: inherit; color: inherit; }
 .map-loading { background: #e9ecea; }
 .map canvas { transition: filter .5s ease; }
 .map.is-stale canvas { filter: grayscale(1) opacity(.8); }
-.legend { position: absolute; left: 10px; bottom: 26px; background: rgba(255, 255, 255, .94); border: 1px solid var(--line); border-radius: 8px;
-  padding: 8px 10px; font-size: 13px; display: flex; flex-direction: column; gap: 5px; pointer-events: none; max-width: calc(100% - 20px); }
+.legend { position: absolute; left: 10px; bottom: 26px; background: rgba(255, 255, 255, .95); border: 1px solid var(--line); border-radius: 8px;
+  padding: 7px 10px; font-size: 13px; max-width: calc(100% - 20px); }
+.legend[open] { display: flex; flex-direction: column; gap: 5px; }
+.legend summary { cursor: pointer; font-weight: 600; font-size: 13px; list-style-position: inside; }
+.key-nws { display: inline-block; width: 18px; height: 11px; border: 1.5px dashed #e09400; background: rgba(241, 182, 64, .12); }
 .legend-row { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: center; }
 .legend-row > span { display: inline-flex; align-items: center; gap: 6px; }
 .ramp-row { gap: 6px; color: var(--muted); }

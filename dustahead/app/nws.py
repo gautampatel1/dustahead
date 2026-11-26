@@ -25,27 +25,63 @@ def _keep(props: dict) -> bool:
     return bool(states & {"AZ", "NM"}) or any(c in area for c in TX_COUNTIES)
 
 
+def rings(geom: dict | None, max_points: int = 150) -> list[list[list[float]]]:
+    """Outer rings of a GeoJSON Polygon or MultiPolygon, rounded to 3 decimals (~100 m) and thinned to at most
+    `max_points` vertices each, so a county-sized zone stays a few kB in every bundle."""
+    if not geom:
+        return []
+    polys = [geom["coordinates"]] if geom.get("type") == "Polygon" else geom.get("coordinates", []) if geom.get("type") == "MultiPolygon" else []
+    out = []
+    for poly in polys:
+        ring = poly[0]
+        step = max(1, -(-len(ring) // max_points))       # ceil, so the cap holds
+        thin = ring[::step]
+        if thin[-1] != ring[-1]:
+            thin.append(ring[-1])
+        out.append([[round(x, 3), round(y, 3)] for x, y in thin])
+    return out
+
+
 def parse(feature_collection: dict) -> list[dict]:
-    """GeoJSON from api.weather.gov -> the bundle's nws list (polygon kept when the product has one)."""
+    """GeoJSON from api.weather.gov -> the bundle's nws list. Storm-based warnings (Dust Storm Warnings) carry their
+    own polygon. Zone-based products (most Blowing Dust Advisories) carry none: their `zones` URLs are kept so
+    fetch_active can look the zone shapes up; until then `polygons` is []."""
     out = []
     for f in feature_collection.get("features", []):
         p = f.get("properties", {})
         if not _keep(p):
             continue
         vtec = (p.get("parameters", {}).get("VTEC") or [""])[0]
-        geom = f.get("geometry")
         out.append(dict(type=p.get("event"), vtec=vtec, area=p.get("areaDesc", ""),
                         onset=p.get("onset") or p.get("effective"), expires=p.get("ends") or p.get("expires"),
-                        polygon=geom["coordinates"][0] if geom and geom.get("type") == "Polygon" else None))
+                        polygons=rings(f.get("geometry")), zones=list(p.get("affectedZones", []))))
     return out
 
 
-def fetch_active(timeout: float = 10.0) -> list[dict] | None:
+def fetch_active(timeout: float = 10.0, max_zones: int = 15) -> list[dict] | None:
+    """Active dust products. Zone-based ones get their zone outlines from api.weather.gov/zones (only when such a
+    product is active, so normally no extra requests); a zone that can't be fetched is skipped and the apps then
+    show the product by name without a shape."""
     import requests
     try:
         r = requests.get(URL, params={"area": "AZ,NM,TX", "status": "actual"}, headers=HEADERS, timeout=timeout)
         r.raise_for_status()
-        return parse(r.json())
+        out = parse(r.json())
     except Exception as e:  # noqa: BLE001  - the bundle still goes out, marked "warnings unknown"
         print(f"[nws] active alerts unavailable ({type(e).__name__}): bundle nws = null")
         return None
+    cache: dict[str, list] = {}
+    for w in out:
+        if not w["polygons"]:
+            for z in w["zones"][:max_zones]:
+                if z not in cache:
+                    try:
+                        zr = requests.get(z, headers=HEADERS, timeout=timeout)
+                        zr.raise_for_status()
+                        cache[z] = rings(zr.json().get("geometry"))
+                    except Exception as e:  # noqa: BLE001
+                        print(f"[nws] zone shape unavailable ({type(e).__name__}): {z.rsplit('/', 1)[-1]}")
+                        cache[z] = []
+                w["polygons"].extend(cache[z])
+        w.pop("zones", None)
+    return out

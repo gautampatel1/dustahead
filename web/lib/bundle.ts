@@ -58,7 +58,10 @@ export interface NwsProduct {
   area: string;
   onset: string | null;
   expires: string | null;
-  polygon: [number, number][] | null;
+  /** Outer rings: the warning polygon, or the shapes of the forecast zones a zone-based product names.
+   *  Empty when no shape could be found; the app then names the product without matching it to a stretch. */
+  polygons?: [number, number][][];
+  polygon?: [number, number][] | null; // schema-1 bundles written before 26 Nov
 }
 
 export interface Bundle {
@@ -193,12 +196,21 @@ function inside(pt: [number, number], poly: [number, number][]): boolean {
   return c;
 }
 
-/** NWS products whose polygon touches this segment (endpoints or midpoint inside). */
+export function ringsOf(w: NwsProduct): [number, number][][] {
+  return w.polygons ?? (w.polygon ? [w.polygon] : []);
+}
+
+/** NWS products whose outline touches this segment (endpoints or midpoint inside). */
 export function warningsFor(seg: Segment, nws: NwsProduct[] | null): NwsProduct[] {
   if (!nws) return [];
   const [a, b] = seg.line;
   const pts: [number, number][] = [a, b, [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]];
-  return nws.filter((w) => w.polygon && pts.some((p) => inside(p, w.polygon!)));
+  return nws.filter((w) => ringsOf(w).some((ring) => pts.some((p) => inside(p, ring))));
+}
+
+/** Active products with no outline at all: they can't be placed, so every stretch lists them as "may apply". */
+export function unplacedWarnings(nws: NwsProduct[] | null): NwsProduct[] {
+  return (nws ?? []).filter((w) => ringsOf(w).length === 0);
 }
 
 /** Names for the ASOS stations along I-10 (falls back to the id). */

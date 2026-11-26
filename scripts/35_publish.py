@@ -198,7 +198,7 @@ def publish_fixture(args, cfg, out: Path) -> None:
         fc["alerts"] = tr.update(fc["alerts"], probs, E)
         nws = [dict(type="Dust Storm Warning", vtec="fixture", area="Pinal County",
                     onset=B._iso(t_start), expires=B._iso(t_start + dt.timedelta(minutes=50)),
-                    polygon=[[-111.9, 32.5], [-111.0, 32.5], [-111.0, 33.2], [-111.9, 33.2], [-111.9, 32.5]])]
+                    polygons=[[[-111.9, 32.5], [-111.0, 32.5], [-111.0, 33.2], [-111.9, 33.2], [-111.9, 32.5]]])]
         nws = nws if t0 < t_start + dt.timedelta(minutes=50) else []
         bpath, _ = B.write_bundle(fc, E, out, source="fixture", issued=t0 + dt.timedelta(minutes=2), nws=nws,
                                   station_names=names, update_latest=(k == 0))
